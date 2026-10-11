@@ -1,331 +1,527 @@
 # Networking
 
+## Contents
+
+1. [Part 1: One Cable](#part-1-one-cable) (sections 1 to 6)
+2. [Part 2: One Local Network](#part-2-one-local-network) (sections 7 to 10)
+3. [Part 3: Many Local Networks](#part-3-many-local-networks) (sections 11 to 17)
+4. [Part 4: Programs Talking](#part-4-programs-talking) (sections 18 to 32)
+5. [Part 5: Wireless](#part-5-wireless) (sections 33 to 47)
+6. [Part 6: The Internet](#part-6-the-internet) (sections 48 to 58)
+7. [Part 7: HTTP](#part-7-http) (sections 59 to 64)
+8. [Part 8: Proxies and Load Balancers](#part-8-proxies-and-load-balancers) (sections 65 to 70)
+9. [Part 9: Pushing Updates to the Browser](#part-9-pushing-updates-to-the-browser) (sections 71 to 77)
+10. [Part 10: TLS](#part-10-tls) (sections 78 to 85)
+11. [Part 11: Cloud Networking](#part-11-cloud-networking) (sections 86 to 92)
+
+---
+
+# Part 1: One Cable
+
+Two computers joined by one cable: how bits, frames and damage checks work, and how bytes reach a program's memory.
+
 ---
 
 ## 1. What a Network Is
 
-### One Computer on Its Own
-A program on a computer can read and write that computer's memory and disk, and nothing else. Its processor has no physical path to the memory or disk of any other computer.
+A program can read and write its own computer's memory and disk, and nothing else. Its processor has no physical path to another computer's memory.
 
-### The Problem
-Two computers, A and B, sit on a desk. A has a file, and a program on B needs it. Before networks, a person copied the file onto a USB stick or floppy disk, walked it over to B, and plugged it in. That needs a person every time, it is slow, and B cannot ask A for something on its own.
+Two computers, A and B, sit on a desk. A has a file that a program on B needs. Without a network, a person copies the file to a USB stick and carries it over. That needs a person every time, and B cannot ask A for anything on its own.
 
-### The Definition
-A network is two or more computers joined by a physical connection, plus a set of rules both computers follow, so that a program on A can send bytes and a program on B can receive them, with no person carrying anything.
-
-Once bytes can travel between computers, a program on B can ask A for a file, use a printer attached to A, or ask A to do work and send back the result.
-
----
+A **network** is two or more computers joined by a physical connection, plus rules both follow, so that a program on A can send bytes and a program on B can receive them. With that, B can ask A for a file, use A's printer, or ask A to do work and send back the result.
 
 ## 2. The Cable and What Travels Through It
 
-### The Cable
-The physical connection is a cable with copper wires inside. One end plugs into a socket on A, the other into a socket on B.
+The connection is a cable with copper wires inside, plugged into a socket on each computer. Behind each socket is a small piece of hardware that turns bytes from memory into electrical signals on the wire, and on the other side turns signals back into bytes.
 
-Behind each socket is a small piece of hardware inside the computer. Its job is to take bytes from the computer's memory and turn them into electrical signals on the wire, and on the receiving side, turn the signals back into bytes in memory.
+What travels is voltage (electrical pressure that can be raised or lowered). In the simplest version:
 
-### What Travels Through It
-What travels through the wire is voltage (electrical pressure that can be raised or lowered). A byte is 8 bits, each bit is a 0 or a 1. In the simplest version:
-
-* The sender sets the wire to high voltage for a 1 and low voltage for a 0, holding each level for a fixed short time (for example one billionth of a second).
+* The sender holds the wire at high voltage for a 1 and low voltage for a 0, each for a fixed short time, for example one billionth of a second. That fixed time is a **time slot**.
 * The receiver measures the voltage once per time slot and writes down a 1 or a 0.
-* Both sides must agree on the time slot in advance. If they do not, the receiver measures at the wrong moments and reads wrong bits.
+* Both must agree on the time slot in advance, or the receiver measures at the wrong moments and reads wrong bits.
 
-Real cables use more complicated signal patterns than plain high and low, but the idea is the same: the sender changes the wire's state, the receiver measures it.
+Real cables use more complicated signal patterns, but the idea is the same: the sender changes the wire, the receiver measures it.
 
-### The Problem This Creates
-The only thing that crosses from A to B is a long sequence of 0s and 1s. The wire always carries some voltage, even when A has nothing to send. So how does B know where a message starts and where it ends?
-
----
+The wire always carries some voltage, even when A has nothing to send. So B needs a way to know where a message starts and ends.
 
 ## 3. Where a Message Starts and Ends
 
-### The Start
-The two computers agree on a fixed starting pattern in advance. Before every message, A sends the same bits, for example `10101010` seven times followed by `10101011`.
+**The start.** Before every message, A sends a fixed pattern agreed in advance, for example `10101010` seven times, then `10101011`. B ignores the wire until it sees this pattern. The alternating part lets B line up its measuring moments with A's clock, since the two clocks are never exactly equal. The final `11` marks that the next bit is the first bit of the message.
 
-* B watches the wire all the time. Until it sees this pattern, it ignores whatever voltage is on the wire.
-* The alternating `1010...` part also lets B line up its measuring moments with A's timing, because their clocks are never exactly equal.
-* The final `11` marks where the pattern ends. The next bit is the first bit of the real message.
+**The end.** A stops sending and the wire goes quiet. A also leaves a short required gap before the next message, so two messages never run together.
 
-### The End
-A stops sending, and the wire goes quiet. B notices there are no more changes and knows the message is over. A also leaves a short required gap before the next message, so two messages never run together.
-
-### Frame
-The block of bits between the start pattern and the quiet gap is called a **frame**. A frame is one message as it travels on the wire, with a clear start and a clear end.
-
----
+The block of bits between the start pattern and the quiet gap is a **frame**: one message as it travels on the wire.
 
 ## 4. Detecting Damaged Frames
 
-### The Problem
-The wire is a physical object. Electrical noise from nearby cables or motors can change the voltage, so a 1 sent by A can be measured as a 0 by B.
+Electrical noise from nearby cables or motors can change the voltage, so a 1 sent by A can be measured as a 0 by B.
 
-### The Fix
-A adds a few extra bytes to the end of every frame, calculated from the rest of the frame's contents. B runs the same calculation on what it received and compares.
+A adds a few bytes to the end of every frame, calculated from the rest of the frame. B runs the same calculation and compares. Simple version: the message is 5, 10 and 20, and A puts their sum, 35, at the end. If noise changes 10 into 11, B gets 36, the results differ, and B knows the frame is damaged.
 
-Simple version: the message is three bytes, 5, 10 and 20. A adds them, gets 35, and puts 35 at the end. B adds the three bytes itself and compares with 35. If noise changed 10 into 11, B gets 36, the results do not match, and B knows the frame is damaged.
+Plain addition misses damage that adds 1 to one byte and subtracts 1 from another. Real hardware uses **CRC** (cyclic redundancy check), a calculation on the bits designed so that common damage almost never gives the same result. On a cable it is 4 bytes at the end of every frame.
 
-### CRC
-Plain addition has a weakness: if noise adds 1 to one byte and subtracts 1 from another, the sum stays the same and the damage is not seen. Real hardware uses a more careful calculation called **CRC** (cyclic redundancy check). It works on the bits, and it is designed so that common kinds of damage almost never produce the same result. On a cable, the CRC is 4 bytes at the end of every frame.
-
-### What B Does With a Damaged Frame
-B throws it away. It does not tell A and does not ask for it again. At this level a damaged frame is simply gone. Getting it resent is handled by a different part of the system (section 8).
-
----
+B throws a damaged frame away. It does not tell A and does not ask for it again. Getting it resent is TCP's job (section 22).
 
 ## 5. Both Sides Sending at Once
 
-### The Problem
-If there is only one wire and A and B change its voltage at the same time, the two signals mix. B measures a voltage that is neither A's bits nor its own, and both frames are destroyed. This is called a **collision**.
+If A and B change the voltage of one wire at the same moment, the signals mix and both frames are destroyed. This is a **collision**.
 
-### Old Fix: Take Turns
-Early cables used rules each computer followed:
+**Old fix: take turns.** Listen before sending, and send only if the wire is quiet. While sending, keep measuring; if the voltage is not what you are sending, someone else is sending too, so stop. Wait a random time and try again, so one side usually starts first next time. Only one side sending at a time is **half duplex**.
 
-1. Listen to the wire before sending. Only send if it is quiet.
-2. While sending, keep measuring the wire. If the voltage does not match what you are sending, someone else is sending too, so stop.
-3. Wait a random amount of time, then try again. Each side picks its own random wait, so one of them usually starts first next time.
-
-When only one side can send at a time, it is called **half duplex**.
-
-### Modern Fix: Separate Wires
-A normal cable has 8 copper wires inside, arranged in 4 pairs. In the simplest case, one pair carries signals only from A to B, and another pair only from B to A. Both can send at the same moment and the signals never mix. This is called **full duplex**. Faster cables use all four pairs in both directions at once, with electronics that subtract their own outgoing signal from what they measure. The result is the same: no collisions on a direct modern cable.
-
----
+**Modern fix: separate wires.** A normal cable has 8 copper wires in 4 pairs. In the simplest case, one pair carries signals only from A to B and another only from B to A, so both can send at once without mixing. This is **full duplex**. Faster cables use all four pairs both ways at once, with electronics that subtract their own outgoing signal from what they measure. Either way, a direct modern cable has no collisions.
 
 ## 6. From the Hardware to the Program
 
-This part happens inside B and uses the kernel, system calls and file descriptors from area 1.
+This uses the kernel, system calls and file descriptors from area 1.
 
-1. **The hardware writes the frame into memory.** At startup, the kernel reserves an area of RAM for incoming frames and gives its location to the hardware. When a frame arrives and passes the CRC check, the hardware writes the bytes directly into that RAM, without the processor copying them one at a time. This is called **DMA** (direct memory access).
-2. **The hardware tells the processor.** It sends an electrical signal called an **interrupt**. The processor pauses what it is doing and runs a specific kernel function. That function belongs to the **driver**, the part of the kernel written for this exact model of hardware. The driver knows where the new frame sits in RAM and how long it is.
-3. **The kernel finds the receiving program.** A program that wants incoming bytes asks the kernel for them. The kernel creates an object called a **socket** and gives the program a file descriptor pointing to it, the same way `open()` gives a file descriptor for a file. Each socket has its own receive buffer in kernel memory. The kernel copies the frame's bytes into that buffer.
-4. **The program reads the bytes.** The program calls `read()` or `recv()` on its file descriptor. That is a system call, so the kernel copies the bytes from the socket's receive buffer into the program's memory. If the buffer is empty, the program blocks (waits) until a frame arrives, the same blocking measured in area 2.
-
-The full path:
+1. **The hardware writes the frame into memory.** At startup the kernel reserves an area of RAM for incoming frames and tells the hardware where it is. A frame that passes the CRC check is written straight into that RAM without the processor copying it. This is **DMA** (direct memory access).
+2. **The hardware tells the processor** with an electrical signal called an **interrupt**. The processor pauses and runs a kernel function from the **driver**, the part of the kernel written for this exact hardware. The driver knows where the frame is and how long it is.
+3. **The kernel finds the receiving program.** A program that wants incoming bytes asks the kernel for a **socket**: a kernel object with its own receive buffer, reached through a file descriptor, the same way `open()` gives one for a file. The kernel copies the frame's bytes into that buffer. How it picks the right socket when several programs receive bytes is section 19.
+4. **The program reads the bytes** with `read()` or `recv()`, a system call that copies them from the receive buffer into the program's memory. If the buffer is empty, the program blocks (waits) until a frame arrives, the same blocking measured in area 2.
 
 ```text
 wire -> hardware -> RAM (DMA) -> interrupt -> driver -> socket receive buffer -> recv() -> program memory
 ```
 
-Sending is the same path in reverse: the program calls `send()`, the kernel copies the bytes into its own memory, the driver tells the hardware where they are, and the hardware turns them into voltage on the wire.
+Sending is the reverse: `send()` copies the bytes into kernel memory, the driver tells the hardware where they are, and the hardware turns them into voltage.
 
 ---
 
-## 7. Which Program Gets the Frame
+# Part 2: One Local Network
 
-### The Problem
-B usually runs more than one program that wants to receive bytes, for example a file-sharing program and a chat program. When a frame arrives, the kernel must know which program's socket it belongs to.
+More than two computers: MAC addresses, the switch, and finding a MAC address with ARP.
 
-### Read, Look Up, Decide
-Every machine that handles frames does the same three things:
+---
 
-1. Read a few bytes from the frame's header.
-2. Look up those bytes in a table.
-3. Make one decision: send the frame out a particular wire, hand it to a particular program, rewrite it, or drop it.
+## 7. Three Computers
 
-For each new concept below, the useful questions are: which bytes does it read, what table does it use, what decision does it make, and why does that table need to exist.
+A cable between every pair does not scale: 50 computers would need 49 sockets each and 1,225 cables. Instead every computer gets one cable to a box in the middle. The simplest box, a **hub**, copies whatever comes in on one socket out of every other socket.
 
-### Ports
-The sender writes a number into the frame that says which program on B the frame is for. This number is a **port**. It is 2 bytes, so it can be 0 to 65535.
+Now A's frame for B also reaches C, and nothing in the frame says which computer it is for.
 
-* **Header**: a fixed set of bytes at the start of a frame that describes the frame, placed before the message. The frame now looks like this:
-
-  ```text
-  [start pattern][receiver port: 2 bytes][sender port: 2 bytes][message bytes][CRC: 4 bytes]
-  ```
-
-  The sender's port is there so B can reply to the right program on A.
-
-* **The table**: when a program on B starts, it creates a socket and calls `bind()`, a system call that says "give me every frame marked with port 7000". The kernel adds a row `7000 -> this socket`. The chat program binds to 7001 and gets its own row. Two programs cannot bind the same port, because then the kernel could not choose between them.
-* **The decision**: when a frame arrives, the kernel reads the receiver port, finds it in the table, and copies the message into that socket's receive buffer. If no row matches, nobody asked for that port, and the kernel drops the frame.
-
-A knows which port to use by agreement in advance. The program's author documents "we listen on 7000". That is why web servers use port 80 by convention.
-
-Simplification: in real systems, the port numbers do not sit right after the start pattern. They are inside other headers built in later sections. The table idea is the same.
-
-### Several Conversations to the Same Port
-A program on A can open 5 conversations at once to the same program on B. Each conversation uses a different port on A's side. When A's program calls `connect()`, A's kernel picks an unused port on A automatically. These automatically picked ports are called **ephemeral ports** (temporary ports).
+**MAC address.** When the hardware behind a socket is made, the factory stores a unique 6-byte number in it, written like `3c:52:82:1a:4f:e0`. The first 3 bytes identify the manufacturer, assigned by a standards body. The manufacturer picks the last 3 so none of its products repeat. This is the **MAC address** (media access control address). It identifies a piece of hardware, not a program or a person.
 
 ```text
-A:50001 -> B:7000
-A:50002 -> B:7000
-A:50003 -> B:7000
-A:50004 -> B:7000
-A:50005 -> B:7000
+[start pattern][to: 6 bytes][from: 6 bytes][message][CRC]
 ```
 
-So B's kernel does not look up a frame by B's port alone. It looks up the pair (sender port, receiver port):
+The hardware reads the 6 "to" bytes and compares them with its own MAC. If they match, the frame goes to RAM and the kernel. If not, the hardware drops it right there, without interrupting the processor. The "from" address tells B where to reply.
 
-* A frame starting a new conversation (section 11) to port 7000 goes to the listening socket, the one B's program called `listen()` on.
-* Every other frame goes to the record matching both ports. For example `50003 -> 7000` goes to conversation 3's socket.
+The hub still sends every frame out of every socket. That wastes cable time, and all computers share one signal path through the hub, so collisions come back.
 
-B's program gets one file descriptor per conversation, plus the listening one.
+## 8. The Switch
 
-Once there are more than two computers, the pair becomes four values: sender computer, sender port, receiver computer, receiver port.
+**Read, look up, decide.** Every machine that handles frames does three things: read a few bytes from the frame's **header** (the fixed bytes at the start of a frame that describe it), look them up in a table, and make one decision: send it out a particular wire, hand it to a program, rewrite it, or drop it. For each machine below, the useful questions are: which bytes does it read, what table does it use, what does it decide, and why does that table exist.
 
----
+A **switch** learns where each computer is from the "from" address of every frame. Its table is `MAC address -> socket`, empty at power on. A is on socket 1, B on 2, C on 3:
 
-## 8. Lost Frames
+1. **A sends to B.** The switch adds `A -> 1`. It has no row for B, so it copies the frame out of every other socket. This is **flooding**. C receives it and drops it.
+2. **B replies to A.** The switch adds `B -> 2`, finds `A -> 1`, and sends the frame out of socket 1 only. C never sees it.
+3. From now on, A and B's frames go only between sockets 1 and 2. When C sends anything, the switch adds `C -> 3`.
 
-### The Problem
-Noise damages a frame, and B throws it away (section 4). A's program has no idea and assumes the bytes arrived.
+A row is deleted after about 5 minutes with no frames from that MAC, so a computer that moves to another socket is learned again from its next frame.
 
-### Acknowledgment
-When B receives a frame that passes the CRC check, B sends back a small frame meaning "got it". This is an **acknowledgment**, usually shortened to **ack**.
+Each switch socket has its own path and every cable is full duplex, so A -> B and C -> A can happen at the same moment. Collisions go away.
 
-### Timer and Resend
-A keeps a copy of every frame it sends and starts a timer, for example 200 milliseconds.
+**One frame at a time on each cable.** If A and C both send to B at once, the switch cannot put both on B's cable: at any instant a wire has one voltage. It holds one frame in memory, its **queue**, and sends it right after the other. Several conversations on one computer work the same way: a browser and a chat program are both in progress, but their frames take turns on the cable. A 1500-byte frame takes about 0.012 milliseconds at 1 Gbit/s, so the turns are short and all conversations seem to move together. This is area 2's concurrency without parallelism.
 
-* If the ack arrives before the timer runs out, A deletes the copy.
-* If the timer runs out first, A assumes the frame was lost, sends the copy again, and restarts the timer.
+If A and C each send at the full 1 Gbit/s, together they push 2 Gbit/s into B's 1 Gbit/s cable. The queue fills, and the switch drops new frames. The senders' kernels notice, resend and slow down (sections 22 and 24).
 
-The time limit is called a **timeout**. Sending the copy again is called a **retransmission**.
+## 9. Finding a MAC Address
 
-### Sequence Numbers
-The ack itself can be destroyed by noise:
+A's program only knows it wants "computer B". It does not know the 6-byte number in B's hardware, and that number changes when B's hardware is replaced.
 
-1. A sends a frame. B receives it and passes the message to its program.
-2. B's ack is lost on the way back.
-3. A's timer runs out, so A sends the same frame again.
-4. B receives it a second time and passes the same message to its program again. The program now has the data twice.
+**IP address.** Whoever sets up the network gives each computer a number, stored in its kernel settings: A `192.168.1.1`, B `192.168.1.2`, C `192.168.1.3`. This is an **IP address** (Internet Protocol address): 4 bytes, written as four numbers from 0 to 255. People choose it, so it stays the same when hardware is replaced. The bigger reason IP addresses exist is in section 11.
 
-The fix: A writes a number into each frame's header, 1, 2, 3, and so on. This is a **sequence number**. B remembers the last number it delivered. If frame 2 arrives again, B knows it is a resend. It does not pass the message to the program again, but it does send the ack again, because A clearly never got the first one. The ack carries the number too ("got 2"), so A knows which frame it refers to.
+**ARP.** A's kernel keeps a table `IP address -> MAC address`. B is not in it yet, so A asks:
+
+1. A sends a frame to `ff:ff:ff:ff:ff:ff`, a special MAC meaning "everyone". All hardware accepts it and every switch floods it. This is a **broadcast**: "Who has 192.168.1.2? Reply to 192.168.1.1 at MAC `aa:aa:...`."
+2. C sees it is not its IP and ignores it.
+3. B saves A's IP and MAC, since it needs them to reply, and answers A's MAC only: "192.168.1.2 is at MAC `bb:bb:...`."
+4. A adds `192.168.1.2 -> bb:bb:...` and can now fill in "to" in its real frame.
+
+Rows expire after a few minutes without use, so replaced hardware is picked up automatically. `ip neigh` shows the table.
+
+These rules are **ARP** (Address Resolution Protocol). A **protocol** is a set of rules two computers agree on: the format of each message and what to do when one arrives. Section 18 comes back to the word.
+
+## 10. Switches Cabled in a Circle
+
+An extra cable between switches gives a backup path if one cable breaks:
 
 ```text
-[start pattern][receiver port][sender port][sequence number][message bytes][CRC]
+   switch 1
+   /      \
+switch 2 -- switch 3
 ```
 
-In real systems this job belongs to a set of rules called **TCP** (Transmission Control Protocol). TCP numbers bytes, not whole frames. The mechanism is the same three pieces: ack, timeout with resend, and sequence numbers.
+**What goes wrong.** A switch floods a broadcast out of every socket except the one it came in on. A's ARP broadcast goes from switch 1 to 2 and 3, they flood it to each other, then back to 1, which floods it again. Copies circle in both directions forever. The MAC group has no counter that would stop them, and switches never read anything else. Each new broadcast adds more copies, and within seconds the cables are full. MAC tables also break, because a switch sees A's MAC arriving on different sockets from one moment to the next. This is a **broadcast storm**.
 
----
-
-## 9. Sending Without Waiting
-
-### The Problem
-With the rules above, A sends frame 1 and sits idle until the ack comes back before sending frame 2. A 10 MB file means thousands of waits.
-
-### Window
-A picks a limit, for example 4: the most frames A may have sent but not yet had acknowledged. This limit is the **window**.
-
-1. A sends frames 1, 2, 3, 4 back to back, keeping a copy and a timer for each.
-2. The ack for 1 arrives. A deletes copy 1. Only 3 frames are now unacknowledged, so A may send frame 5.
-3. The ack for 2 arrives, so A sends 6. And so on.
-
-The range of frames A may have in flight moves forward by one with each ack, so this is called a **sliding window**.
-
-### Why It Is Faster
-Say a 1500-byte frame takes 0.012 milliseconds to put on the wire, and the round trip (frame goes out, ack comes back) takes 1 millisecond. Waiting for every ack means about 0.012 ms sending and about 1 ms idle, so the wire is used about 1% of the time. With a large enough window, A keeps sending while earlier acks are still on their way, and the wire stays busy.
-
-### One Frame in the Middle Is Lost
-Frames 1 to 4 are sent, and 2 is damaged and thrown away.
-
-* B receives 1, 3 and 4. It passes 1 to the program. It holds 3 and 4 in its buffer and does not pass them on, because the program must receive bytes in order.
-* Each ack B sends says "I have everything up to and including 1". This is a **cumulative ack**: one number that covers everything before it.
-* A's timer for frame 2 runs out, A resends 2. Once 2 arrives, B passes 2, 3 and 4 to the program in order and acks "everything up to 4".
-
-Sequence numbers now do two jobs: detect duplicates, and put frames back in order.
-
-### Why Not Ack 3 and 4 Separately
-In this design, 3 and 4 never get their own acks. B cannot say "up to 4" while 2 is missing, so it repeats "up to 1". B could ack 3 and 4 individually, and real systems support that as an extra option called **selective ack**. The cumulative ack is the base design for two reasons:
-
-1. **A lost ack does not matter.** If "up to 3" is destroyed and then "up to 4" arrives, the single number 4 tells A that 1 to 4 all arrived. With individual acks, losing the ack for 3 makes A resend frame 3 even though B already has it.
-2. **Repeated acks tell A something is missing.** If A receives "up to 1" several times in a row, frames after 1 are arriving but 2 is not. After 3 repeated acks with the same number, TCP resends the missing frame right away instead of waiting for its timer. This is called **fast retransmit**.
-
-The cumulative ack gives A one number with one meaning: everything before this point is safe, delete those copies.
-
----
-
-## 10. A Slow Receiver
-
-### The Problem
-B's socket receive buffer has a fixed size, for example 64 KB. If B's program calls `recv()` slowly and A keeps sending, the buffer fills. The kernel on B has nowhere to put new frames, so it drops them. A gets no acks, resends, and the resent frames are dropped too. The wire is busy but nothing useful gets through.
-
-### The Fix
-Every ack B sends carries a second number: how many bytes of free space are left in its receive buffer right now.
+**The fix.** Switches send each other small messages and agree on one center, the switch with the lowest ID number. Each keeps only its shortest path toward the center and turns off forwarding on any socket that would close a circle:
 
 ```text
-ack: "I have everything up to 40, and I have 8000 bytes of free space"
+   switch 1  (center)
+   /      \
+switch 2 xx switch 3     (xx = turned off)
 ```
 
-That number is the **receive window**. A follows one rule: data sent but not yet acknowledged must never be larger than the free space B last reported. So A's window is not a fixed number like 4. B sets it, and it changes with every ack.
-
-* B's program reads quickly: the buffer stays mostly empty, B reports a lot of space, A sends at full speed.
-* B's program reads slowly: the space shrinks, B reports less, A sends less.
-* The buffer is full: B reports 0 and A stops. A sends a tiny frame every so often to ask "is there space now?". Once B's program reads some data, B answers with the new free space and A continues.
-
-This is called **flow control**: the receiver controls how fast the sender sends.
-
-### What A's Program Sees
-A's kernel also has a send buffer for each socket, holding bytes that are not acknowledged yet. When B reports 0, A's kernel cannot send, so its send buffer fills. Once it is full, the next `send()` in A's program blocks until space frees up. A slow `recv()` on B makes `send()` on A wait.
+Now there is exactly one path between any two switches. The switch 2 to switch 3 cable stays plugged in but carries nothing. If the switch 1 to switch 2 cable breaks, the missing messages are noticed and the extra socket is turned back on. This protocol is **STP** (Spanning Tree Protocol). "Tree" means a layout with no circles.
 
 ---
 
-## 11. Starting a Conversation
+# Part 3: Many Local Networks
 
-### What Each Side Needs First
-* Data flows in both directions, so each side has its own sequence numbers. A numbers what A sends, B numbers what B sends. Each side must learn the other's starting number.
-* Starting numbers are picked at random, not 0. If A and B talked a minute ago on the same ports, a delayed resend from the old conversation could arrive late and fall inside the new conversation's numbers. A random start makes that very unlikely.
-* A must know that a program on B is actually waiting on that port.
-
-### Flags
-A **flag** is a single bit in the header that marks what kind of frame this is.
-
-* **SYN** (synchronize): "here is my starting number".
-* **ACK**: "the ack number in this header is valid".
-
-### The Three Frames
-1. A -> B: SYN. "I want to start. My starting number is 1000."
-2. B -> A: SYN + ACK. "I got your 1000, I expect 1001 next. My starting number is 5000."
-3. A -> B: ACK. "I got your 5000, I expect 5001 next."
-
-Each side must announce its number (2 frames) and get an ack for it (2 frames), which makes 4. B puts its ack and its own announcement in the same frame, so 4 becomes 3. Without frame 3, B would not know whether A received B's starting number. This is the **three-way handshake**.
-
-### What the Programs Do
-The kernels do the handshake, not the programs.
-
-* B's program calls `bind()` on port 7000, then `listen()`, which tells the kernel to accept handshakes on that port. Then it calls `accept()`, which blocks.
-* A's program calls `connect()` to B's port 7000. A's kernel sends the SYN, and `connect()` blocks until the SYN + ACK arrives.
-* When frame 3 reaches B, `accept()` returns a new file descriptor for this conversation.
-
-If no program on B listens on 7000, B's kernel replies with a frame carrying the **RST** (reset) flag, and `connect()` on A fails with `Connection refused`.
-
-### What a Connection Actually Is
-After the handshake, nothing on the wire has changed. The "connection" is a record in each kernel's memory: the ports, both sequence numbers, the latest receive window, and the send and receive buffers. Each kernel has its own copy, and the handshake makes the two copies start out in agreement.
+Joining local networks with routers: IP addresses, routing tables, TTL, and how a computer gets its settings.
 
 ---
 
-## 12. Ending a Conversation
+## 11. Computers in Another Building
 
-### Each Direction Closes Separately
-A new flag, **FIN** (finish), means "I have no more data to send". It closes only the sender's direction.
+A second building has its own switch and computers D, E and F. Joining the two switches works for a few hundred computers, but every switch would need a row for every computer, and every ARP broadcast would reach every computer. At world scale that is impossible. The groups have to stay separate, with something between them that forwards frames but not broadcasts.
 
-"A is done" means only that A is done sending. A can still receive. After A's FIN:
+**Group the addresses.** Building 1 uses `192.168.1.x` (A .1, B .2, C .3), building 2 uses `192.168.2.x` (D .4, E .5, F .6). A group of computers that reach each other through switches alone and receive each other's broadcasts is a **local network**. Each gets its own address **prefix**, the shared first part of the address.
 
-* B can keep sending data to A for as long as it wants. A's kernel receives and acks it as usual.
-* A cannot send more data on this connection. To send more, it must open a new connection with a new handshake.
+**The router.** A **router** is a computer with one socket cabled to each building's switch. Each socket has its own MAC and its own IP, for example `192.168.1.254` on the building 1 side.
 
-### The Frames
-1. A -> B: FIN. The FIN takes a sequence number like data, so it arrives after all of A's data and is resent if lost.
-2. B -> A: ACK for the FIN.
-3. On B, the program's next `recv()` returns 0 bytes. That is how a program learns the other side is finished, the same way `read()` on a file returns 0 at the end of the file. B's program sends any remaining data, then closes, and B's kernel sends its own FIN.
-4. A -> B: ACK for B's FIN.
+**A's decision.** A's kernel settings say: "my local network is everything starting with 192.168.1", and "send anything else to 192.168.1.254". That router address is the **default gateway**. To B, same prefix: ARP for B's MAC and send directly. To D, different prefix: send to the router.
 
-If B has nothing left to send, it can put its ACK and FIN in one frame, which makes three.
+**Two addresses, two jobs.** For the frame to D, A writes the router's MAC in "to MAC", because the router takes it next, and D's IP in "to IP", because D is the final destination:
 
-### Example: Request and Reply
-1. A sends "give me file X", then FIN. The FIN means "my request is complete".
-2. B's `recv()` returns 0, so B knows it has the whole request.
-3. B sends the file, possibly many megabytes, while A's direction is already closed.
-4. B closes and sends FIN. A's `recv()` returns 0, so A knows it has the whole file.
+```text
+[start][to MAC][from MAC][from IP][to IP][message][CRC]
+```
 
-### shutdown() vs close()
-* `shutdown(fd, SHUT_WR)` sends FIN and closes only A's sending direction. A's program can still call `recv()` and read B's data. The example above uses this.
-* `close(fd)` also sends FIN, but A's program gives up the file descriptor completely and cannot read anything anymore. If B sends data after that, A's kernel has no program to deliver it to, and it answers with RST.
+A MAC address says which machine on this cable takes the frame next, and only means something inside one local network. An IP address says where the frame should end up, and means something everywhere.
 
-The FIN on the wire looks the same in both cases.
+**What the router does:**
 
-### CLOSE_WAIT and TIME_WAIT
-Each kernel's record has a field that says which stage the conversation is at. CLOSE_WAIT and TIME_WAIT are two values of that field.
+1. Its building 1 socket accepts the frame, because "to MAC" is its own.
+2. It looks up "to IP" `192.168.2.4` in its table: `192.168.1.x -> socket 1`, `192.168.2.x -> socket 2`.
+3. It finds D's MAC with ARP on building 2's side. The router can do this because its socket 2 is cabled to building 2's switch, so it is a member of building 2's local network, one local network per socket.
+4. It builds a new frame: "from MAC" its own socket 2 MAC, "to MAC" D's MAC, the IP part and message unchanged, a new CRC.
+
+D's kernel sees its own IP in "to IP" and gives the message to the program it is for (section 19).
+
+The switches never read IP and never do ARP. The rule: whoever puts a frame on a cable writes "to MAC" for the next machine on that local network. In building 1 that is A, writing the router's MAC. In building 2 it is the router, writing D's MAC.
+
+**The router's two tables.** The **routing table** (prefix -> socket) answers "which socket does this frame go out of?", with one row per local network. The **ARP table** (IP -> MAC) answers "what goes in 'to MAC' for the last step?", and holds only recently used computers on networks the router is cabled to.
+
+This is why IP addresses exist: building 2 could have 200 computers and the routing table still needs one row for all of them. Routers further away need only that prefix row and never store D's MAC (section 12).
+
+## 12. Networks Not Cabled to the Router
+
+Building 3 (`192.168.3.x`, with G at `192.168.3.7`) is cabled to a second router, R2. R2 is cabled to R1 by a short cable that is a tiny local network of its own: R1's end is `10.0.0.1`, R2's end `10.0.0.2`.
+
+```text
+building 1 --- R1 --- R2 --- building 3
+               |
+          building 2
+```
+
+R1 gets a new kind of row:
+
+```text
+prefix          send to                 out of
+192.168.1.x     directly                socket 1    (ARP for the destination's MAC)
+192.168.2.x     directly                socket 2
+192.168.3.x     next router 10.0.0.2    socket 3    (ARP for the next router's MAC)
+```
+
+A frame from A to G:
+
+```text
+step         from MAC              to MAC     from IP   to IP
+A -> R1      A                     R1 (s1)    A         G      A: not my prefix, send to the default gateway
+R1 -> R2     R1 (socket 3)         R2         A         G      R1: row says next router 10.0.0.2
+R2 -> G      R2 (building 3 side)  G          A         G      R2: 192.168.3.x is directly on one of its sockets
+```
+
+The MAC pair is rewritten at every step, and both IP addresses stay the same the whole way, so G knows the frame came from A. Each router only decides the next step. None knows the whole path.
+
+**The default route.** A router cannot list every network in the world, so its table can have one row that matches any address, written `0.0.0.0/0`: "if nothing else matches, send to this next router". A's default gateway is this same row in A's own table. A computer runs the same lookup as a router, usually with two rows (`192.168.1.x directly`, `everything else -> 192.168.1.254`). `ip route` shows them. When several rows match, the most specific wins: `192.168.3.7` matches both `192.168.3.x` and "everything else", and the `192.168.3.x` row is used.
+
+**Where rows come from.** On small networks a person types them. On large ones, routers send each other messages like "I can reach 192.168.3.x, send it through me" and build their tables from them. Between companies on the internet this is done with BGP (Border Gateway Protocol), not covered here.
+
+## 13. Loops and the Hop Counter
+
+A router does not remember frames it has seen and does not know the full path. Say someone types R2's row for `192.168.3.x` as "next router R1" instead of "directly". R1's correct row says "next router R2". A frame for G then goes R1 -> R2 -> R1 -> R2 forever. Every new frame for building 3 joins the loop, the cable and queues fill, and frames for every other destination start being dropped too.
+
+**The fix: TTL.** The IP part of the header carries a small number. Every router subtracts 1 before forwarding and throws the frame away when it reaches 0. Starting at 3, the looping frame dies on its third router. The field is **TTL** (time to live). It was meant as seconds, but every router subtracts 1, so it counts router steps, called **hops**. TTL does not fix the wrong row. It only makes a looping frame disappear until someone fixes it.
+
+There is no single cable from a laptop to a server in another country, so frames always cross many routers: laptop -> home router -> provider's routers -> ... -> the server's router -> server. Linux starts TTL at 64. A frame to another country might pass about 15 routers and arrive with 49 left. Only a looping frame reaches 0. 64 is more than any real path needs and small enough that a loop ends quickly. TTL also means a frame cannot stay in transit forever, which TCP relies on when it closes a connection (section 26).
+
+**ICMP.** A router that throws a frame away at TTL 0 sends a short message back to the sender: "I threw away your frame because its count ran out". Without it the sender would only see that no reply came. **ICMP** (Internet Control Message Protocol) is the format for short status and error messages like this one. `ping` also uses it.
+
+## 14. How the Header Parts Fit Together
+
+The frame carries the same fields as before, grouped by who reads them. A's program sends `hi` to B:
+
+```text
+1. program gives the kernel:      hi
+2. the IP code puts in front:     [from IP 192.168.1.1, to IP 192.168.1.2, TTL 64] hi
+3. the hardware adds:             [to MAC bb.., from MAC aa.., type 0x0800] [from IP .., to IP .., TTL 64] hi [CRC]
+```
+
+B's kernel reads left to right and removes one group at a time until only `hi` is left. Putting one group inside another is **encapsulation**. Each group is a **layer**. Part 4 adds one more group between the IP group and `hi`, the one that says which program gets the bytes (section 19).
+
+**"What is inside" fields.** After removing the MAC group, the next bytes are just bytes: they could be an IP group, or an ARP message, which has a different layout. So each group carries a field naming the next group. The MAC group's **type** says `0x0800` for an IP group or `0x0806` for ARP. The IP group's **protocol** field does the same job for what comes after it (values in section 21). B reads type `0x0800` and passes the rest to the IP code, which checks that "to IP" is B's own and passes the rest on.
+
+**Who reads which group.** A switch reads only the MAC group. A router removes the MAC group, reads the IP group, subtracts 1 from TTL, and adds a new MAC group. It never reads past the IP group. Only the two end computers read what comes after it.
+
+## 15. Switches, Routers and Why Both Addresses
+
+**Two jobs.** A switch joins computers inside one local network: it reads 6 bytes and uses a table it fills by itself, so it needs no setup and is cheap per socket. A router joins different local networks: it reads the IP group, uses prefixes, lowers TTL, rewrites the MAC group and does not forward broadcasts, so it needs settings and does more work per frame. A large building has many switches and a few routers. A data center rack usually has a 48-socket switch on top joining its servers, with a few cables up to routers.
+
+**The home box** called a "router" is several devices in one case: a router, whose own socket (often labeled WAN) goes to the internet provider, and a switch, the sockets usually labeled LAN, where computers reach each other without the router part reading IP. It also hands out addresses (section 16) and does NAT (section 50).
+
+**Why MAC when IP exists.** A switch could map IP addresses to sockets instead. Three reasons it does not:
+
+1. **The frame needs a "next machine" field separate from the final destination.** From A to G (section 12), "to IP" is G the whole way, but on building 1's switch the frame must go to R1, and G is not even on that switch.
+2. **A computer must send frames before it has an IP address.** A new laptop asks for one by sending a frame (section 16), and needs an address that already exists: the MAC from the factory. ARP messages also have no IP group at all.
+3. **The cable layer was designed to carry more than IP.** In the 1970s and 80s several protocols shared the same cables, which is what the type field is for. Hardware drops frames for other computers by comparing 6 bytes at a fixed position, without understanding any protocol.
+
+**Why IP inside one local network.** With only one local network, MAC alone would do. IP is needed because of routers, but programs always use IP, near or far. A program calls `sock.connect(("192.168.1.2", 7000))` (7000 is a port, section 19) and never handles a MAC. The kernel looks up the routing table (local, or the default gateway), finds that machine's MAC in its ARP table or with an ARP broadcast, and writes it in "to MAC".
+
+## 16. Getting an IP Address Automatically
+
+A computer needs three settings: its IP address (`192.168.1.23`), its local network (everything starting with `192.168.1`) and its default gateway (`192.168.1.254`). They live in the kernel. A person can set them with commands, which are lost on reboot:
+
+```bash
+sudo ip addr add 192.168.1.5/24 dev eth0         # address and local network prefix on the cable socket eth0
+sudo ip route add default via 192.168.1.254      # the "everything else" row: the default gateway
+```
+
+or in a settings screen that a program turns into the same commands at startup (Ubuntu: Settings -> Network -> IPv4 -> Manual). `ip addr` and `ip route` show the result. Typing is slow and error-prone: two computers with the same IP get each other's frames, and a laptop would need new settings in every place.
+
+**Ask everyone.** Same trick as ARP. One machine on the local network, at home the home box, hands out settings and keeps a list so it never gives an address twice. It is a **DHCP server** (Dynamic Host Configuration Protocol). The laptop knows only its own MAC:
+
+1. **Laptop -> everyone** (broadcast): "My MAC is `aa:aa:...`. I need settings."
+2. **Server -> that MAC**: "Use 192.168.1.23. Your local network is 192.168.1. Your gateway is 192.168.1.254."
+
+The real protocol has two more messages, "I am taking this one" and "confirmed", because a network can have several DHCP servers and the laptop must say whose offer it took. The messages use UDP (section 21).
+
+**The lease.** The address is loaned for a set time, for example 24 hours. Halfway through, the laptop asks to keep it, sending only that request straight to the server. If the laptop leaves, the lease runs out and the address can go to someone else. A laptop rejoining a network usually asks for its previous address and gets it back if it is free. The messages run when the cable is plugged in or Wi-Fi connects (NetworkManager sends the first one on Ubuntu), at boot, and at renewal, and finish in well under a second.
+
+**Where the DHCP server sits.** On the same local network, because the first message is a broadcast and routers do not forward broadcasts. Its own address is typed by hand, since it cannot ask anyone. Addresses typed by hand are **static addresses**. Machines others must find at a known address (routers, DHCP servers, printers, servers) usually get them.
+
+## 17. What /24 Means
+
+An IP address is 4 bytes, 32 bits. `/24` means "the first 24 bits are the local network part", which is the first 3 bytes. So `192.168.1.0/24` is every address starting with `192.168.1`: `192.168.1.0` to `192.168.1.255`, 256 addresses. `.0` names the local network itself and `.255` means "every computer on this local network", so 254 are usable.
+
+```text
+/24   first 3 bytes fixed    256 addresses
+/16   first 2 bytes fixed    65,536 addresses
+/8    first 1 byte fixed     about 16.7 million addresses
+/26   first 26 bits fixed    64 addresses, e.g. 192.168.1.0 to 192.168.1.63
+```
+
+The number does not have to fall on a byte boundary. That is how one block is split into smaller local networks. "Subnet" (subnetwork) means one local network, especially one made by such a split.
+
+The kernel compares only the first N bits of an address with a row. A laptop's table as `ip route` prints it:
+
+```text
+default via 192.168.1.254 dev eth0
+192.168.1.0/24 dev eth0
+```
+
+The second line is the "directly" row. `default` is `0.0.0.0/0`: zero bits must match, so every address matches. When several rows match, the larger number after the slash wins, because it is more specific.
+
+A **subnet mask** writes the same information as a 4-byte number with 1s in the network part: `/24` is `255.255.255.0`. The kernel keeps an address's bits where the mask has 1s and zeroes the rest: `192.168.1.23` gives `192.168.1.0`, which is the local network, while `192.168.2.4` gives `192.168.2.0`, which is not, so it goes to the default gateway.
+
+---
+
+# Part 4: Programs Talking
+
+Getting bytes to the right program and getting them there whole: ports, UDP, TCP, frame sizes, ICMP and layers.
+
+---
+
+## 18. What a Protocol Is
+
+Parts 1 to 3 get a frame to the right computer. This part gets the bytes to the right program, and gets them there whole.
+
+When A sends a cable frame to B, both sides agreed in advance on the order of the fields (start pattern, to MAC, from MAC, type, ..., CRC), the size of each (a MAC is 6 bytes, the CRC 4), and what each side does (the receiver drops a frame whose CRC does not match; a computer answers ARP only for its own IP). If B expected the to-MAC 2 bytes later than where A put it, B would read the wrong 6 bytes and drop every frame. The bytes mean something only because both follow the same written rules.
+
+A **protocol** is a written set of rules: which bytes go where, what each means, and what each side does in reply. The cable frame rules, ARP, and the IP group (from IP, to IP and TTL, each in a fixed place) are three protocols.
+
+## 19. Which Program Gets the Bytes
+
+The kernel receives every frame first, and needs a number in the frame that says which program the bytes are for. The process ID cannot be it: a program gets a new one every time it starts, and the sender cannot see the receiver's process IDs.
+
+**Ports.** A fixed number is agreed instead. A program asks its kernel "give me every frame for number 7000" (the system call is `bind()`), and the kernel writes that in a table. The number is a **port**: 2 bytes, so 0 to 65535. Two programs cannot have the same port, or the kernel could not choose.
+
+```text
+B's kernel:   port 7000 -> chat program      port 6600 -> music program
+
+A's frame:    [MAC group][IP group: to 192.168.1.24][from port 50001, to port 7000]["hi"]
+```
+
+B's kernel reads "to port" 7000 and gives "hi" to the chat program. If no program asked for that port, no program gets the bytes. What the kernel sends back then is in sections 21 (UDP) and 26 (TCP).
+
+"From port" tells B where to reply: `[to A][from port 7000, to port 50001]["hello"]`. A's program did not choose 50001. The kernel picked an unused one. Ports picked like this are **ephemeral ports** (temporary ports). Linux picks them from 32768 to 60999, about 28,000 numbers. The receiving side's port must be known in advance, so programs agree on fixed numbers: web servers use 80, name servers 53 (section 53).
+
+## 20. Where Frames Get Dropped
+
+On a cable network a frame is lost in two places, and in neither case is the sender told:
+
+```text
+where              why                                                   how often
+the cable          noise flips bits, the CRC fails, the chip drops it    rare on a good cable
+                   (section 4)
+a router's line    frames arrive faster than the outgoing cable can      the most common cause
+                   send; the line fills, new frames are dropped
+```
+
+Wireless adds a third place, in the air (section 39).
+
+`send("hi")` returns as soon as the kernel copies the bytes into its own memory for that connection, the **send buffer**. It waits only when that buffer is full, never for B. If a router drops the frame later, neither the kernel nor the program hears about it.
+
+The router sends no "slow down" message. The drop is the only signal: the ack never comes back, and the sender's kernel then slows down (section 24). Many computers share one router and none knows about the others, so the line fills before any of them slows down. UDP has no such rule. The kernel sends as fast as the program gives it bytes.
+
+## 21. UDP
+
+With only ports, a lost frame stays lost: nothing on a cable acks it, the router tells nobody, and B cannot miss a frame it never heard of. The small group from section 19 is a real protocol with exactly this behaviour. Its group is always 8 bytes, between the IP group and the data:
+
+```text
+[MAC group][IP group, protocol 17][ UDP group, 8 bytes ]["hi"][CRC]
+                                    from port   2 bytes
+                                    to port     2 bytes
+                                    length      2 bytes   (this group plus the data)
+                                    checksum    2 bytes   (computed from the bytes, like the CRC)
+```
+
+The IP group's **protocol** field (section 14) says what comes after it, the way the MAC group's type field does: 17 for UDP, 6 for TCP (section 22 on), 1 for ICMP (section 29).
+
+The sender's kernel fills in both ports, the length (8 + 2 = 10 for "hi") and the checksum. The receiver's kernel recomputes the checksum and drops the frame if it differs, then gives the data to the program on "to port". If no program has that port, it drops the frame and sends back an ICMP "port unreachable" message (section 29), limited to a few per second by Linux. That is the whole protocol: no waiting for a reply, no resending, no numbering. Routers pass the UDP group along unread.
+
+A program picks UDP when it starts, and from then on its kernel adds this group to everything it sends. **UDP** = User Datagram Protocol. A **datagram** is one piece of data sent in one frame, on its own.
+
+**The bytes for "hi"**, in hex (base 16, two hex digits per byte):
+
+```text
+from port 50001   C3 51       C3 51 = 195 × 256 + 81 = 50001
+to port   7000    1B 58       1B 58 =  27 × 256 + 88 = 7000
+length    10      00 0A
+checksum          e.g. 4F 2E
+data      "hi"    68 69       'h' is 68, 'i' is 69
+```
+
+Two bytes make one number: the first counts 256s, the second counts ones, the way "42" has 4 tens and 2 ones. The largest is `FF FF` = 65535, which is why ports stop there. The 256s byte goes first in every network protocol, called **network byte order**. A laptop's processor stores the ones byte first, so the kernel swaps the two bytes when it writes a port.
+
+**Why a length field.** A cable frame must be at least 64 bytes, so a frame with only "hi" gets zero bytes added before the CRC. The length tells B the data is 10 − 8 = 2 bytes, so the zeros are ignored. The IP group has a length too, so this is partly a second copy, kept so the UDP group can be checked on its own.
+
+**When UDP is enough.** Name lookups (DNS, section 53): the question fits in one frame, and the program asks again if no answer comes within about 1 second. Voice calls: each frame carries about 20 ms of sound, and a resent one would arrive too late to play, so skipping it (a short click) is better.
+
+## 22. Numbering the Bytes
+
+A sends a 1 MB photo to B. With UDP, lost frames go unnoticed. To keep numbers simple, say each frame carries 1000 bytes (really 1460, section 28), so the photo needs 1000 frames.
+
+* **Rule 1:** A writes in every frame the position of its first byte in the photo: 0, 1000, 2000, ... This is the **sequence number**. B can see which positions are still empty.
+* **Rule 2:** B replies with the next position it wants. "Ack 1000" means "I have everything before 1000, send 1000 next". This is the **ack number**.
+* **Rule 3:** A keeps a copy of each frame until an ack covers it. If none does within a set time, for example 200 ms, A sends the copy again.
+
+```text
+A sends          B has                  B replies
+0      ->        0-999                  ack 1000
+1000   -> lost
+2000   ->        0-999, 2000-2999       ack 1000   (still missing 1000-1999)
+... 200 ms pass, no ack covers frame 1000 ...
+1000   ->        0-2999                 ack 3000
+```
+
+B holds 2000–2999 and gives it to its program only after 1000–1999 arrives, so the program always gets bytes in order with no gaps.
+
+**The ack can be lost too.** Then A resends a frame B already has. The number tells B these positions are filled, so B drops the copy and acks again. So the number does two jobs: it puts bytes back in order and lets B drop copies.
+
+**Why the ack says "everything before".** One number covering everything before it is a **cumulative ack**. A lost "ack 2000" does not matter once "ack 3000" arrives. And repeated acks tell A something is missing: B answers every frame after the gap with "ack 1000" again, and after 3 repeats A resends the missing frame at once instead of waiting 200 ms. This is **fast retransmit**. B can also report the pieces it holds after the gap, so A resends only what is missing. TCP supports this as an option (section 27) called **selective ack**.
+
+This ack comes from B's kernel across every router, so a drop anywhere means no ack, and A resends. These are the first rules of **TCP** (Transmission Control Protocol), which has its own group where the UDP group would be.
+
+## 23. Sending Without Waiting
+
+A and B are in different cities: a frame takes 25 ms to arrive and the ack 25 ms to come back. Waiting for each ack costs 50 ms per frame, so 1000 frames take 50 seconds, and the cable sits idle most of that time.
+
+**Rule 4: many frames before any ack.** Say A may have 10 unacked frames out. It sends 10, and each returning ack frees a place that A fills at once. Each 50 ms trip now moves 10 frames: 5 seconds in total, or 0.5 seconds with 100 allowed. Rule 3 still applies to every frame.
+
+**Rule 5: every ack says how much room is left.** B's kernel holds bytes until B's program reads them. If the program reads slowly, that memory fills, so every ack also carries B's free room:
+
+```text
+ack 5000, room 8000 bytes   -> A may have at most 8000 unacked bytes out
+ack 6000, room 0 bytes      -> A stops until B reports room again
+```
+
+The number of unacked bytes A may have out is the **window**, and B's room number is the **window field** in the TCP group. Each ack moves the allowed range forward, so it is also called a **sliding window**. When the room is 0, A sends a tiny frame every so often to ask "is there room now?". The receiver controlling the sender's speed this way is **flow control**. While A cannot send, bytes stay in A's send buffer (section 20), and once it is full, `send()` waits. A slow `read()` on B makes `send()` on A wait.
+
+## 24. What the Path Can Take
+
+B's room says nothing about the routers on the way. B may report room for 1,000,000 bytes while a router's line holds only 200 frames (section 20). Routers answer no questions about their lines. All A can see is whether acks come back.
+
+**Rule 6: A keeps a second limit of its own** and sends no more than the smaller of this limit and B's room. Start at 10 frames (Linux's default), double it whenever a whole trip's frames are acked, and on a loss cut it in half and then add 1 frame per trip:
+
+```text
+trip    1    2    3    4    5     6                  7          8     9    ...
+limit   10   20   40   80   160   320 (line full,    160 (cut,  161   162  slowly up, halves at the next loss
+                                  frames dropped)    resend)
+```
+
+So A's limit stays near what the path can take, down when it is busy, back up when it is quiet. Ten computers sharing the router each see their own drops and lower their own limit. None knows about the others, but together they bring the line back under 200.
+
+A full router line that drops frames is **congestion**. A's own limit is the **congestion window**. The doubling at the start is **slow start**: it grows fast, but starts at 10 frames instead of full speed. The whole mechanism is **congestion control**, separate from the room number, which only protects B's memory. Linux uses a variant called CUBIC, which cuts to about 70% and grows back faster.
+
+A new connection starts at 10 frames and works its way up, so a short one sending a few hundred KB may finish before reaching full speed. This is one reason programs reuse one connection for many requests.
+
+## 25. Starting a Connection
+
+Before any data, B's kernel must set aside memory for the new conversation (next byte expected, room, space for out-of-order frames) and learn where A's numbers begin.
+
+**Random start.** A frame from a conversation a minute ago with the same ports could still arrive late. If every conversation started at 0, B would take those old bytes as new. So each side picks a random starting number. The sequence field is 4 bytes, 0 to about 4.3 billion, so an old frame almost never fits the new range. Both sides pick one, because B's bytes need numbers too.
+
+**Rule 7: three frames before any data.** The TCP group has single-bit fields called flags (section 27). **SYN** (synchronize) means "this is my starting number". **ACK** means "read the ack number in this frame".
+
+```text
+1. A -> B:  SYN,       seq 4000                "my numbers start at 4000"
+2. B -> A:  SYN + ACK, seq 9000, ack 4001      "got yours; mine start at 9000"
+3. A -> B:  ACK,       ack 9001                "got yours"
+```
+
+Frame 3 tells B that A received B's starting number. Each frame also carries its sender's room. This exchange is the **handshake**.
+
+**What takes a number.** Each side keeps a counter, and the seq field shows its value when the frame is sent. Only things that must be acked and resent if lost take a number: each data byte, the SYN, and the FIN (section 26). So A's SYN shows 4000, the plain ACK after it shows 4001 and takes nothing, and "hi" shows 4001 with h = 4001, i = 4002. A plain ACK is never acked itself, or the ack of the ack would need an ack forever. A lost ACK is covered by the next one. With the random start, photo byte 0 from section 22 is really number 4001.
+
+**What the programs do.** The kernels do the handshake. B's program calls `bind()` on port 7000, then `listen()` (accept handshakes on this port), then `accept()`, which waits. A's program calls `connect()`, its kernel sends the SYN, and `connect()` waits for the SYN + ACK. When frame 3 reaches B, `accept()` returns a new file descriptor for this connection, so B's program has one per connection plus the listening one. If no program on B called `listen()` on that port, B's kernel answers the SYN with the **RST** (reset) flag, meaning "nothing here", and `connect()` fails with `Connection refused`. UDP answers the same case with ICMP "port unreachable".
+
+**Four values.** A and C can pick the same port 50001, since each kernel picks its own. So B's kernel keeps each connection under four values, from the IP and TCP groups:
+
+```text
+A's IP : A's port      B's IP : B's port
+192.168.1.23 : 50001   192.168.1.24 : 7000    -> next byte expected, room, held frames
+192.168.1.25 : 50001   192.168.1.24 : 7000    -> a different connection
+```
+
+A conversation set up like this is a **connection**. Each line of `ss -tan` is one such row. The 28,000 ephemeral ports (section 19) are a limit per destination, because the "to" values differ for other servers.
+
+After the handshake nothing on the wire has changed. A connection is a record in each kernel's memory (the four values, both sequence numbers, the latest room, the send and receive buffers), and the handshake makes the two records start out in agreement.
+
+## 26. Ending a Connection
+
+When A is done, B may still have bytes to send, so each side ends its own direction.
+
+**Rule 8: FIN.** A frame with the **FIN** (finish) flag means "I have no more bytes to send". It takes one number, so it is acked and resent like data. After the photo (bytes 4001 to 1,004,000) and B's "ok" (9001 to 9002):
+
+```text
+1. A -> B:  FIN, seq 1004001      A's program called close(): "I'm done sending"
+2. B -> A:  ACK 1004002
+            ... B could still send bytes here ...
+3. B -> A:  FIN, seq 9003         B's program called close(): "I'm done too"
+4. A -> B:  ACK 9004
+```
+
+If B has nothing more to send, its kernel often puts frames 2 and 3 together (FIN + ACK), so the close takes three frames.
+
+**How B's program learns A is done.** It reads in a loop. `read()` returns whatever bytes have arrived, or waits if none have, so it normally never returns 0 bytes. Once the FIN has arrived and every byte before it has been read, the next `read()` returns 0 at once. That empty result is the only sign the program gets. It never sees the FIN frame.
+
+**`shutdown()` vs `close()`.** `shutdown(fd, SHUT_WR)` sends FIN and closes only A's sending direction, so A can still read B's bytes. `close(fd)` also sends FIN but gives up the file descriptor, so A cannot read anymore, and if B sends bytes after that, A's kernel answers with RST. The FIN on the wire is the same in both cases.
+
+**CLOSE_WAIT and TIME_WAIT** are two values of a field in each kernel's record that says which stage the connection is at:
 
 ```text
 step  frame             A's record      B's record
@@ -336,2544 +532,22 @@ step  frame             A's record      B's record
       60 seconds later  deleted
 ```
 
-* **CLOSE_WAIT (on B)**: A's direction is closed, B's is still open. B's kernel is waiting for B's program to close. The kernel cannot send B's FIN on its own, because B's program might still have data to send. If the program never closes, the record stays in CLOSE_WAIT forever. Programs that forget to close sockets pile up these records and use up file descriptors. This is a common bug in real servers.
-* **TIME_WAIT (on A)**: both sides are finished, but A keeps the record for 60 seconds (on Linux) before deleting it. Only the side that sent the first FIN does this.
+* **CLOSE_WAIT (on B):** A's direction is closed and B's kernel waits for B's program to call `close()`. It cannot send B's FIN by itself, since the program might still have bytes to send. A program that forgets to close piles up CLOSE_WAIT records and runs out of file descriptors, a common bug in real servers.
+* **TIME_WAIT (on A):** both are finished, but the side that sent the first FIN keeps the record 60 seconds on Linux.
 
-### Why TIME_WAIT Exists
-**Reason 1: the last ACK can be lost.** If frame 4 is destroyed, B's timer runs out and B resends its FIN. If A had already deleted its record, A's kernel would not recognize the frame and would answer with RST, so B would see an error even though all data arrived. Because A still has the record, it sends the ACK again.
+**Why TIME_WAIT exists.** First, frame 4 can be lost. B then resends its FIN, and if A had deleted its record, its kernel would answer RST and B would see an error although all bytes arrived. Second, old frames must disappear. Say connection 1 (A port 50000 to B port 7000) has a frame with seq 3000 delayed in a router. A resends it and the connection finishes. Connection 2 starts at once with the same four values and a random start of 2500. The delayed seq 3000 arrives, fits what B expects, and B's program gets old bytes in the new connection. While A's record is in TIME_WAIT, A will not reuse those four values, so the late copy finds no connection and is thrown away. TIME_WAIT assumes a frame cannot be in transit longer than some maximum, which TTL enforces (section 13). It is twice that maximum, rounded on Linux to 60 seconds.
 
-**Reason 2: old frames must disappear.** A concrete case:
+**If an old frame does get in.** If its number is outside the range B expects, B throws it away. If it is inside, B accepts it: the CRC passes because the frame is not damaged, the four values match, and the program gets wrong bytes with no error. Linux also puts a timestamp from the sender's clock, which only goes up, in each frame's TCP options, and B drops frames older than the latest one. This almost never happens, because everything must be true at once: delayed over 60 seconds when routers hold frames for milliseconds, same four values out of 28,000 ports and never reused in TIME_WAIT, a sequence number inside B's range (about 1 in 65,000 for a 64 KB range), and a passing timestamp.
 
-1. Conversation 1 runs between A's port 50000 and B's port 7000. A sends frame 3000, but it gets delayed somewhere. A's timer runs out, A resends it, the copy arrives, and conversation 1 finishes normally.
-2. Conversation 2 starts right away on the same ports, 50000 and 7000, with a new random starting number 2500.
-3. The delayed old copy of frame 3000 finally arrives. The ports match conversation 2, and 3000 is close to what B expects, so B accepts it. B's program receives bytes from the old conversation mixed into the new one.
+Programs that need correct data also add their own checks. **TLS** (the encryption used by HTTPS, Part 10) checks every block with a key made fresh for each connection, so a frame from another connection fails and the connection ends with an error. Downloads and package installs compare a hash of the whole file, for example SHA-256, with a known value. Databases checksum their pages and log records. These also catch damage TCP misses: the CRC protects a frame only on the cable, a router with faulty memory can damage bytes after checking them, and TCP's 16-bit checksum is weak (section 27). Lower layers make errors rare, and a program that cannot accept any checks the data itself, end to end.
 
-While A's record is in TIME_WAIT, A will not start a new conversation on the same port pair, so the delayed copy arrives while there is no matching conversation and is thrown away.
+**Cost of TIME_WAIT.** Each record holds its four values for 60 seconds. A program that opens and closes thousands of short connections to one server can use up all 28,000 ephemeral ports, and then `connect()` fails. One more reason to reuse connections.
 
-On a single cable between two computers, a frame is almost never delayed that long. It becomes a real problem once there are machines in between that hold frames in queues (sections 14 and 17).
+**RST: the fast ending.** One frame, no ack, no wait. A kernel that sends or receives RST deletes the connection at once and throws away bytes not yet sent or read. The other program gets an error ("connection reset") instead of the empty read. RST is sent when a frame arrives for a connection that does not exist, for example after its record was deleted (section 51 shows a case), and when a program closes while unread bytes are still in its kernel, so the other side knows not everything was taken. A program that exits normally without unread bytes gets a normal FIN, sent by the kernel.
 
-TIME_WAIT is a time-based safeguard. It relies on one assumption: a frame cannot stay in transit longer than some maximum time. TIME_WAIT is set to twice that maximum, rounded on Linux to 60 seconds. The rule that enforces the maximum is in section 18.
+## 27. The TCP Group
 
-### If an Old Frame Does Get Mixed In
-* **Its sequence number is outside the range B expects**: B treats it as invalid and throws it away. Nothing goes wrong.
-* **Its sequence number is inside the range B expects**: B accepts it. The CRC passes because the frame is not damaged, only from the wrong conversation. The ports match and the number looks valid. B's program receives wrong bytes with no error anywhere.
-
-Linux adds one more check by default: a timestamp in each frame's header, taken from the sender's clock, which only goes up. B remembers the latest timestamp on the connection and drops frames with an older one.
-
-### Why Applications Are Still Reliable
-Yes, a frame that passes every check gets delivered to the program. It almost never happens, for two reasons.
-
-**1. Every condition has to be true at once.** The old frame has to:
-
-* be delayed more than 60 seconds. Machines in between normally hold a frame for milliseconds, and frames that pass through too many routers are dropped (section 18).
-* arrive while a new conversation uses the exact same port pair. A's kernel picks ports from about 28,000 options and will not reuse a pair in TIME_WAIT.
-* carry a sequence number inside the small range B accepts. Sequence numbers run from 0 to about 4.3 billion. If B accepts the next 64 KB, a random old number lands in that range about 1 time in 65,000.
-* pass the timestamp check.
-
-**2. Programs that need correct data add their own checks.**
-
-* **TLS** (the encryption used by HTTPS) adds a cryptographic check to every block of data, using a secret key created fresh for each connection. An old frame from a different connection was protected with a different key, so the check fails, and the connection ends with an error instead of delivering wrong bytes.
-* **Downloads and package installs** compare a hash of the whole file (for example SHA-256) with a known value and reject the file if they differ.
-* **Databases** store their own checksums on pages and log records.
-
-These checks also catch damage TCP misses for another reason. The CRC protects a frame only while it is on the wire. A machine in between with faulty memory can damage the bytes after checking them, and TCP's own checksum is only 16 bits and fairly weak. The general rule: lower layers make errors rare, and a program that cannot accept any errors checks the data itself, end to end.
-
-### Cost of TIME_WAIT
-Each record in TIME_WAIT keeps its port pair in use for 60 seconds. Linux picks ephemeral ports from roughly 32768 to 60999, about 28,000 of them. A program that opens and closes thousands of short connections to the same server can use them all up, and then `connect()` fails. This is one reason programs reuse connections instead of opening a new one per request.
-
----
-
-## 13. Three Computers
-
-### How to Wire Them
-* **A cable between every pair** (A-B, A-C, B-C). Each computer needs one socket per other computer. With 50 computers, each needs 49 sockets, and there are 1,225 cables. This does not scale.
-* **A box in the middle.** Each computer has one socket and one cable, and every cable goes to a central box with many sockets. The simplest box copies whatever comes in on one socket out of every other socket. These boxes are called **hubs**.
-
-### The Problem
-A sends a frame meant for B. The hub copies it to both B and C, so C's hardware receives the same bits as B's. Ports do not help: they pick a program inside a computer. Nothing yet says which computer the frame is for.
-
-### MAC Address
-When the hardware behind the socket is manufactured, the factory stores a unique 6-byte number in it, written like `3c:52:82:1a:4f:e0`.
-
-* The first 3 bytes identify the manufacturer. A standards body assigns them so no two manufacturers share them.
-* The manufacturer picks the last 3 bytes so none of its products repeat.
-
-This number is the **MAC address** (media access control address). It identifies a piece of hardware, not a program and not a person.
-
-```text
-[start pattern][to: 6 bytes][from: 6 bytes][ports][sequence number][message][CRC]
-```
-
-When a frame arrives, the hardware reads the 6 bytes after the start pattern and compares them with its own MAC address. If they match, the frame goes to RAM and the kernel as before. If not, the hardware throws it away right there, without interrupting the processor. C still receives the bits of A's frame, but drops it after reading 6 bytes. The "from" address tells B where to send its reply.
-
-### What Is Still Wrong With the Hub
-The hub still sends every frame out of every socket. That wastes cable time on computers that will drop the frame, and all computers share one signal path through the hub, so collisions come back.
-
----
-
-## 14. The Switch
-
-### The Table
-A **switch** learns where each computer is by reading the "from" address of every frame that comes in. It keeps a table in its memory: `MAC address -> socket number`. At power on, the table is empty.
-
-A is on socket 1, B on socket 2, C on socket 3.
-
-1. **A sends a frame to B.** The switch reads "from": A's MAC on socket 1, and adds `A -> 1`. It reads "to": B's MAC. No row for B yet, so it copies the frame out of every socket except the one it came in on (2 and 3). This is called **flooding**. C receives the frame and drops it.
-2. **B replies to A.** The switch reads "from": B's MAC on socket 2, and adds `B -> 2`. It reads "to": A's MAC, finds `A -> 1`, and sends the frame out of socket 1 only. C never sees it.
-3. From now on, frames between A and B go only between sockets 1 and 2. Once C sends anything, the switch adds `C -> 3`.
-
-```text
-MAC address          socket
-A's MAC              1
-B's MAC              2
-C's MAC              3
-```
-
-Read, look up, decide: the switch reads the 6-byte "to" address, looks it up in the MAC -> socket table, and picks the socket to send out of.
-
-Each row is deleted after about 5 minutes with no frames from that address. If a computer moves to another socket, the old row expires, and the switch learns the new socket from its next frame.
-
-### Why Collisions Go Away
-Each socket on the switch has its own path, and every cable is full duplex. A -> B and C -> A can happen at the same moment without mixing.
-
-### One Frame at a Time on Each Cable
-If A and C both send to B at the same moment, the switch cannot put both frames on B's cable at once. At any instant a wire has one voltage, so it can carry one bit from one frame. Mixing them would be a collision again.
-
-The switch holds one frame in its memory and sends it right after the other. That holding area is a **queue**.
-
-This is also true of the 5 conversations in section 7. They were all open at the same time, but their frames took turns on the cable:
-
-```text
-time ->
-[conv 1 frame][conv 3 frame][conv 2 frame][conv 1 frame][conv 5 frame]...
-```
-
-A 1500-byte frame takes about 0.012 milliseconds on a 1 Gbit/s cable, so the turns are short enough that all conversations seem to move forward together. This is the concurrency vs parallelism difference from area 2: the conversations are concurrent (all in progress), but on one wire in one direction they are never parallel (sent at the same instant).
-
-### When the Queue Fills
-If A and C each send at the full cable speed of 1 Gbit/s, together they try to put 2 Gbit/s into B's cable, which carries 1 Gbit/s. Half the frames must wait, the queue fills, and once it is full, the switch drops new frames. TCP's acks and resends recover them. TCP also has a separate mechanism that detects this and slows the senders down. It is different from flow control, which only protects B's buffer. Not covered yet.
-
----
-
-## 15. Finding a MAC Address
-
-### The Problem
-The frame needs B's MAC address in its "to" field. A's program only knows it wants "computer B". It does not know a 6-byte number stored in B's hardware at the factory, and that number changes whenever B's hardware is replaced.
-
-### IP Address
-Whoever sets up the network gives each computer a number and stores it in that computer's kernel settings:
-
-```text
-A: 192.168.1.1
-B: 192.168.1.2
-C: 192.168.1.3
-```
-
-This is an **IP address** (Internet Protocol address): 4 bytes, written as four numbers from 0 to 255. It is chosen by people, so it stays the same when B's hardware is replaced. A's program says "connect to 192.168.1.2, port 7000". The bigger reason IP addresses exist is in section 16.
-
-### ARP
-A's kernel keeps a table `IP address -> MAC address`. At first B is not in it, so A asks:
-
-1. A sends a frame with "to" set to `ff:ff:ff:ff:ff:ff`, a special MAC address meaning "everyone". All hardware accepts it, and the switch always floods it. This is a **broadcast**. The message says: "Who has 192.168.1.2? Reply to 192.168.1.1 at MAC `aa:aa:...`."
-2. C sees the IP is not its own and ignores it.
-3. B sees its own IP. B saves A's IP and MAC in its own table, since it needs them to reply, then sends a normal frame to A's MAC only: "192.168.1.2 is at MAC `bb:bb:...`."
-4. A adds `192.168.1.2 -> bb:bb:...` to its table and can now fill in the "to" field of its real frame.
-
-```text
-IP address      MAC address
-192.168.1.2     bb:bb:bb:bb:bb:bb
-```
-
-Rows expire after a few minutes without use, and A asks again when needed, so replaced hardware is picked up automatically. The table can be seen with `ip neigh`.
-
-This set of rules is **ARP** (Address Resolution Protocol). A **protocol** is a set of rules two computers agree on: the format of each message and what to do when one arrives. TCP and ARP are both protocols.
-
----
-
-## 16. Computers in Another Building
-
-### The Problem
-A second switch in another building has its own computers, D, E and F. Broadcasting "who has this IP?" to every computer in every building, and eventually the whole world, is not possible.
-
-### Why Not Just Connect the Two Switches
-Switches connected to each other learn MAC addresses and flood broadcasts across both. That works for a few hundred computers. But every switch would need a row for every computer, and every ARP broadcast would reach every computer. At world scale, neither is possible. The groups must be kept separate, with something between them that forwards frames but not broadcasts.
-
-### Group the IP Addresses
-```text
-Building 1: A 192.168.1.1, B 192.168.1.2, C 192.168.1.3
-Building 2: D 192.168.2.4, E 192.168.2.5, F 192.168.2.6
-```
-
-A group of computers that can reach each other through switches alone, and that all receive each other's broadcasts, is a **local network**. Each local network gets its own address **prefix** (the shared first part of the address).
-
-### The Router
-A **router** is a computer with two sockets: one cabled to building 1's switch, one to building 2's switch. Each socket has its own MAC address and its own IP address, for example `192.168.1.254` on the building 1 side.
-
-### A's Decision
-A's kernel settings say two things: "my local network is everything starting with 192.168.1", and "for anything else, send to 192.168.1.254". That router address is the **default gateway**.
-
-* **To B (192.168.1.2)**: same prefix, so ARP for B's MAC and send directly.
-* **To D (192.168.2.4)**: different prefix, so send it to the router.
-
-### Two Addresses With Two Jobs
-For the frame to D, A puts the router's MAC in "to MAC", because the router is the next machine that should pick it up, and D's IP in "to IP", because D is the final destination.
-
-```text
-[start][to MAC][from MAC][from IP][to IP][ports][sequence number][message][CRC]
-```
-
-* MAC addresses say which machine on this cable takes the frame next. A MAC address only has meaning inside one local network.
-* IP addresses say where the frame should end up. An IP address has meaning everywhere.
-
-### What the Router Does
-1. Its building 1 socket receives the frame. "To MAC" matches its own, so it accepts it.
-2. It reads "to IP" (192.168.2.4) and looks it up in its table:
-
-   ```text
-   prefix          send out of
-   192.168.1.x     socket 1
-   192.168.2.x     socket 2
-   ```
-
-3. 192.168.2.x matches socket 2. Using ARP on building 2, the router finds D's MAC.
-4. It builds a new frame: "from MAC" is its own socket 2 MAC, "to MAC" is D's MAC. The IP part, ports and message are unchanged. A new CRC is calculated, and the frame goes out of socket 2.
-
-D's kernel sees its own IP in "to IP" and delivers the message to the program on the right port.
-
-### Why the Router Finds D's MAC and Not the Switch
-The router is a member of building 2's local network itself: its socket 2 is cabled to building 2's switch, like D's socket. It is inside two local networks at once, one per socket. From socket 2, D's MAC is a local address, the same way B's MAC is local to A.
-
-A switch only reads MAC addresses. It reads "to MAC", looks it up in its MAC -> socket table, and sends the frame out. It never reads IP addresses and never does ARP. If the frame reaching building 2's switch did not already have D's MAC in "to MAC", the switch would have nothing to look up.
-
-The rule: whoever sends a frame onto a cable writes the "to MAC" for the next machine on that local network.
-
-* In building 1, A is the sender and writes the router's MAC.
-* In building 2, the router is the sender and writes D's MAC.
-* The switches only move the frame to the socket that matches "to MAC".
-
-### The Router's Two Tables
-* **Routing table** (prefix -> socket): answers "which socket does this frame go out of?". One row per local network.
-* **ARP table** (IP -> MAC): answers "what MAC goes in 'to MAC' for the last step?". It holds only computers on local networks the router is cabled to, and only ones that exchanged frames recently. Rows expire after a few minutes.
-
-In the two-building setup, the router can end up with a MAC address for every computer in both buildings, because it is cabled into both.
-
-The routing table is why IP addresses exist. Building 2 could have 200 computers, and the routing table still needs one row for all of them. This matters for routers that are not cabled to D's building (section 17): they need only the prefix row and never store D's MAC. Only the last router, the one cabled to D's local network, needs D's MAC.
-
----
-
-## 17. Networks Not Cabled to the Router
-
-### The Setup
-Building 3 has computers starting with `192.168.3`, for example G at 192.168.3.7. Building 3's switch is cabled to a second router, R2. R2 is cabled to the first router, R1, by its own short cable. That cable is a tiny local network of two machines with its own addresses: R1's end is `10.0.0.1`, R2's end is `10.0.0.2`.
-
-```text
-building 1 --- R1 --- R2 --- building 3
-               |
-          building 2
-```
-
-### A New Kind of Row
-```text
-prefix          send to                 out of
-192.168.1.x     directly                socket 1
-192.168.2.x     directly                socket 2
-192.168.3.x     next router 10.0.0.2    socket 3
-```
-
-* **Directly**: the destination is on a local network cabled to this socket, so the router uses ARP to find the destination computer's MAC.
-* **Next router**: the destination is further away, so the router uses ARP to find the next router's MAC.
-
-### A Frame From A to G
-1. A: the prefix is not 192.168.1, so A sends to its default gateway. "To MAC" = R1's MAC, "to IP" = G.
-2. R1 reads "to IP", finds the 192.168.3.x row, sees "next router 10.0.0.2", finds R2's MAC with ARP on socket 3, and writes R2's MAC into "to MAC". "To IP" is still G.
-3. R2 reads "to IP". In R2's table, 192.168.3.x is "directly" on one of its sockets, so it finds G's MAC with ARP and sends the frame to G.
-
-Each router also writes its own MAC into "from MAC", using the MAC of the socket it sends out of:
-
-```text
-step         from MAC              to MAC     from IP   to IP
-A -> R1      A                     R1 (s1)    A         G
-R1 -> R2     R1 (socket 3)         R2         A         G
-R2 -> G      R2 (building 3 side)  G          A         G
-```
-
-The MAC pair is rewritten at every step. Both IP addresses stay the same the whole way. When G receives the frame, "from MAC" is R2's, but "from IP" is still A's, so G knows the frame came from A and where to reply.
-
-Each router only decides the next step. None of them knows the whole path.
-
-### The Default Route
-A router cannot list every network in the world. Its table can have one row that matches any address, usually written `0.0.0.0/0`. This is the **default route**: "if no other row matches, send it to this next router".
-
-A's default gateway is just this row in A's own routing table. A computer runs the same lookup as a router, but its table usually has two rows:
-
-```text
-192.168.1.x       directly
-everything else   next router 192.168.1.254
-```
-
-It can be seen with `ip route`.
-
-When several rows match, the most specific one wins. A frame for 192.168.3.7 matches both `192.168.3.x` and "everything else", so the `192.168.3.x` row is used.
-
-### How the Rows Get There
-On small networks, a person types them in. On large networks, routers send each other messages like "I can reach 192.168.3.x, send it through me", and each router builds its table from them automatically. The internet does this between companies with a protocol called BGP (Border Gateway Protocol). Not covered here.
-
----
-
-## 18. Loops and the Hop Counter
-
-### Why a Loop Happens
-Each router only follows its own table. It does not remember frames it has already seen, and it does not know the full path. It reads "to IP", finds the matching row, and sends the frame where the row says.
-
-Say someone made a mistake typing R2's table. It should have:
-
-```text
-192.168.3.x     directly, socket 2
-```
-
-But it has:
-
-```text
-192.168.3.x     next router R1
-```
-
-R1's table is correct:
-
-```text
-192.168.3.x     next router R2
-```
-
-Follow one frame for G (192.168.3.7):
-
-1. R1 receives it. Its row says "send to R2".
-2. R2 receives it. Its wrong row says "send to R1".
-3. R1 receives the same frame again. It does not know it has seen it before. Its row still says "send to R2".
-4. R2 sends it back to R1 again.
-
-Nothing in either table changes, so this repeats forever. Every pass uses time on the cable between them. Each new frame for building 3 joins the loop and never leaves. The cable and the routers' queues fill, and frames for every other destination start getting dropped too.
-
-### The Fix: TTL
-The frame carries a small number in the IP part of its header. Every router subtracts 1 before forwarding, and a router that gets it to 0 throws the frame away. Starting at 3:
-
-```text
-A sends the frame            number = 3
-R1 subtracts 1, forwards     number = 2
-R2 subtracts 1, forwards     number = 1
-R1 subtracts 1, gets 0       throws the frame away
-```
-
-The field is called **TTL** (time to live). The original design meant seconds. In practice every router subtracts 1, so it counts router steps, called **hops**.
-
-TTL does not fix the wrong table row. It only makes sure a looping frame eventually disappears. A person or the automatic messages between routers still have to fix the row.
-
-### Why Frames Hop at All
-There is no single cable from a laptop to a server in another country. The world is made of many local networks joined by routers, and the frame must cross many routers in a row:
-
-```text
-your laptop -> your home router -> your internet provider's routers -> ... -> the server's router -> server
-```
-
-Each router moves the frame one step closer, like R1 and R2 did for A -> G.
-
-### 64 Is a Limit, Not a Target
-Linux starts TTL at 64. A normal frame does not hop 64 times. It passes through however many routers are on the path, and the leftover count does not matter. A frame to a server in another country might pass about 15 routers and arrive with 64 - 15 = 49 left. Only a looping frame counts all the way to 0. 64 is comfortably more than any real path needs, and small enough that a looping frame disappears quickly.
-
-TTL is also the rule behind the TIME_WAIT assumption in section 12: a frame can only be forwarded a limited number of times, and each router holds it briefly, so it cannot stay in transit forever.
-
-### ICMP
-When a router throws a frame away because its TTL reached 0, it sends a short message back to the original sender: "I threw away your frame because its count ran out". Without it, the sender would only know that no reply came, not why. **ICMP** (Internet Control Message Protocol) is the name for the format of short status and error messages like this one. `ping` also uses ICMP.
-
----
-
-## 19. How the Header Parts Fit Together
-
-### Same Fields, Grouped
-Nothing here is new. The frame carries the same fields built in earlier sections, grouped by who reads them.
-
-### Building a Frame for `hi`
-A's program sends the two letters `hi` to B. The kernel on A builds the frame one step at a time.
-
-1. The program gives the kernel `hi`.
-2. The TCP code puts the port and sequence fields in front:
-
-   ```text
-   [from port 50001, to port 7000, seq 1001] hi
-   ```
-
-3. The IP code puts the IP fields in front of that:
-
-   ```text
-   [from IP 192.168.1.1, to IP 192.168.1.2, TTL 64] [from port 50001, to port 7000, seq 1001] hi
-   ```
-
-4. The hardware puts the MAC fields in front and the CRC at the end:
-
-   ```text
-   [to MAC bb.., from MAC aa..] [from IP .., to IP .., TTL 64] [from port .., to port .., seq ..] hi [CRC]
-   ```
-
-The last line is the frame that goes on the cable. Each group is added by a different piece of the kernel. B's kernel reads it from left to right and removes one group at a time: first the MAC group, then the IP group, then the TCP group, until only `hi` is left for the program.
-
-Putting one group inside another like this is called **encapsulation**. Each group is called a **layer**.
-
-### "What Is Inside" Fields
-When B's kernel removes the MAC group, the next bytes are just bytes. The kernel cannot tell what they are by looking at them. They might be an IP group, or an ARP question, which has a different layout. So each group carries one small field that says what the next group is.
-
-* In the MAC group, a field called **type**:
-
-  ```text
-  0x0800  -> an IP group comes next
-  0x0806  -> an ARP message comes next
-  ```
-
-* In the IP group, a field called **protocol**:
-
-  ```text
-  6   -> a TCP group comes next
-  17  -> a UDP group comes next
-  ```
-
-**UDP** (User Datagram Protocol) is a simpler protocol than TCP. It has ports like TCP, but no handshake, no acks, no sequence numbers and no resends.
-
-The frame for `hi` with these fields:
-
-```text
-[to MAC bb.., from MAC aa.., type 0x0800] [from IP .., to IP .., TTL 64, protocol 6] [from port .., to port .., seq ..] hi [CRC]
-```
-
-How B reads it:
-
-1. Reads the MAC group. Type is `0x0800`, so it passes the rest to the IP code.
-2. The IP code reads the IP group. Protocol is `6`, so it passes the rest to the TCP code.
-3. The TCP code reads the ports, finds the socket, and puts `hi` in its receive buffer.
-
-If the type had been `0x0806`, step 1 would have passed the rest to the ARP code, and there would be no IP or TCP group at all.
-
-### Who Reads Which Group
-* A switch reads only the MAC group.
-* A router removes the MAC group, reads the IP group, subtracts 1 from TTL, and adds a new MAC group. It never reads the TCP group.
-* Only the two end computers read the TCP group.
-
----
-
-## 20. Telling Conversations Apart
-
-### The Problem
-Section 7 looked up conversations by a pair of ports. With more computers, A and C each pick their own temporary port, and nothing stops them from picking the same number:
-
-```text
-A: 50001 -> B: 7000
-C: 50001 -> B: 7000
-```
-
-A frame arrives at B with ports `50001 -> 7000`. By ports alone, B cannot tell whether it belongs to A's conversation or C's.
-
-### Four Values
-B's kernel looks up each frame by four values: from IP, from port, to IP, to port. All four come from the frame itself, from the IP group and the TCP group.
-
-```text
-from IP        from port   to IP          to port   socket
-192.168.1.1    50001       192.168.1.2    7000      conversation with A
-192.168.1.3    50001       192.168.1.2    7000      conversation with C
-```
-
-The ports match, but "from IP" differs, so these are two different conversations. Each row is one connection. Two connections can share up to three of the four values.
-
-### Two Earlier Points, Updated
-* TIME_WAIT (section 12) blocks reuse of the same four values, not just the same two ports.
-* The limit of about 28,000 ephemeral ports applies per destination. A can have up to 28,000 connections to B's port 7000, and another 28,000 to some other server, because the "to" values differ.
-
-Each line in `ss -tan` output is one of these rows: local address and port, then remote address and port.
-
----
-
-## 21. How Big a Frame Can Be
-
-### The Limit
-On a normal cable network, everything after the MAC group in one frame (IP group, TCP group and program bytes) can be at most 1500 bytes. This limit is the **MTU** (maximum transmission unit).
-
-Why there is a limit:
-
-* The hardware and switches reserve fixed-size memory slots for incoming frames, so they need to know the largest size in advance.
-* While one frame is on the cable, every other frame for that cable waits in the queue. A 10 MB frame would block everyone else for its whole length.
-* If noise damages one bit, the CRC fails and the whole frame is thrown away. Losing and resending 1500 bytes costs much less than losing 10 MB.
-
-### A 10 MB send()
-The TCP code cuts the bytes into pieces that fit:
-
-```text
-1500 bytes allowed
-- 20 bytes IP group
-- 20 bytes TCP group
-= 1460 bytes of program data per frame
-```
-
-That 1460 is the **MSS** (maximum segment size). Each side tells the other its MSS inside the SYN during the handshake. 10 MB / 1460 is about 7,200 frames.
-
-### What the Sequence Number Counts
-TCP numbers bytes, not frames (section 8). With a starting number of 1001:
-
-```text
-frame 1: seq 1001, carries bytes 1001 to 2460
-frame 2: seq 2461, carries bytes 2461 to 3920
-frame 3: seq 3921, ...
-```
-
-The sequence number is the number of the first byte in the frame. An ack says "the next byte I expect is 3921", meaning everything before 3921 arrived.
-
-### What the Programs See
-* **A**: `send()` copies the bytes into A's send buffer. If 10 MB does not fit, it either blocks until there is space, or returns early saying how many bytes it took, and the program must call it again with the rest. Python's `sendall()` repeats the call itself.
-* **B**: B's program does not see 7,200 frames. It sees one long stream of bytes. One `recv(4096)` returns up to 4096 bytes from whatever has arrived, which may be part of one frame or pieces of several. Where A's `send()` calls started and ended is not kept.
-
-So if A sends two separate messages, B can receive them joined in one `recv()` and cannot tell where the first one ends. Each program protocol must mark its own message boundaries. This is roadmap experiment 2, "No message boundaries".
-
----
-
-## 22. Full Queues in the Middle
-
-### The Problem
-The receive window (section 10) only protects B's buffer. It does not protect the queues on switches and routers in between. When A and C both send at full speed into B's cable (section 14), B's buffer can have plenty of space while the switch's queue in front of B's cable is full and dropping frames. Nothing in the middle sends A a message about it.
-
-### What A Can See
-A cannot see the switch's queue. It sees only the result: frames get dropped, so acks stop coming or the same ack repeats. TCP treats a lost frame as a sign that something on the path is overloaded. A full queue somewhere on the path is called **congestion**.
-
-### A Second Limit
-A keeps its own estimate of how much data the path can carry at once, called the **congestion window**. Data sent but not yet acknowledged must stay under both limits, B's receive window and A's congestion window, whichever is smaller.
-
-### How A Adjusts It
-1. **Start small.** A new connection starts at about 10 frames (Linux's default).
-2. **Grow quickly while nothing is lost.** For every frame acked, A raises the window by one frame. In practice it doubles every round trip: 10, 20, 40, 80. This phase is called **slow start**, even though it grows fast. The name comes from starting at 10 frames rather than at full speed.
-3. **Cut back on loss.** When a frame is lost, A shrinks the window, by about half in the classic version, or to about 70% in Linux's default.
-4. **Grow slowly after that.** A raises the window gradually and backs off again at the next loss.
-
-A keeps raising its speed until it fills a queue somewhere, backs off, then raises it again. When A and C both send into B's cable, each loses frames and backs off, and over time each ends up with roughly half the cable. This whole mechanism is **congestion control**.
-
-### A Practical Result
-Every new connection starts at 10 frames and works its way up. A short connection sending a few hundred KB may finish before reaching full speed. This is one more reason programs reuse one connection for many requests.
-
----
-
-## 23. Why Both Switches and Routers
-
-### The Home Box
-The box at home called a "router" is several devices in one case:
-
-* **A router**: one socket (often labeled WAN) connects to the internet provider. The router part moves frames between the home local network and the provider's network, using IP addresses.
-* **A switch**: the group of sockets usually labeled LAN, often 4. Computers plugged into those talk to each other through the switch part, using MAC addresses, without the router part reading IP at all.
-* **Other services**: handing out IP addresses automatically (section 26), and NAT (not covered yet).
-
-Separate switches are common in offices and data centers. A data center rack usually has a 48-socket switch at the top connecting all servers in that rack, with a few cables from it to routers.
-
-### Two Different Jobs
-* **A switch** joins computers inside one local network. It reads only 6 bytes and looks them up in a table it fills in by itself, so it needs no setup and is cheap per socket.
-* **A router** joins different local networks. It reads the IP group, uses prefixes, subtracts from TTL, rewrites the MAC group, and does not forward broadcasts. It needs configuration and does more work per frame.
-
-A home needs one small local network, so both jobs fit in one box. A large building has many local networks, so it uses many switches and a few routers between them.
-
----
-
-## 24. Switches Cabled in a Circle
-
-### Why a Circle
-As a backup. If switch 1 connects to switch 2 through one cable and that cable breaks, the two halves cannot reach each other. An extra cable that forms a circle gives a second path.
-
-```text
-   switch 1
-   /      \
-switch 2 -- switch 3
-```
-
-### What Goes Wrong
-A, on switch 1, sends an ARP broadcast. A switch always floods a broadcast out of every socket except the one it came in on.
-
-1. Switch 1 sends it to switch 2 and switch 3.
-2. Switch 2 floods it to switch 3. Switch 3 floods it to switch 2.
-3. Each floods its copy back to switch 1, which floods those again.
-
-Copies go around in both directions forever. A router would stop this with TTL, but the MAC group has no counter, and switches do not read the IP group. Each new broadcast adds more copies. Within seconds the cables are full and normal frames cannot get through. Switch MAC tables also break, because a switch sees A's MAC arriving from different sockets one moment to the next. This is a **broadcast storm**.
-
-### The Fix
-Switches send each other small messages and agree on one switch as the center, the one with the lowest ID number. Each switch keeps active only its shortest path toward the center and turns off forwarding on any extra socket that would close a circle:
-
-```text
-   switch 1  (center)
-   /      \
-switch 2 xx switch 3     (xx = turned off)
-```
-
-Now there is exactly one path between any two switches, so a frame cannot come back around. The cable between switch 2 and switch 3 stays plugged in but carries no traffic. If the cable between switch 1 and switch 2 breaks, the switches notice the missing messages and turn the extra socket back on, so switch 2 is reached through switch 3.
-
-This protocol is **STP** (Spanning Tree Protocol). "Tree" means a layout with no circles.
-
----
-
-## 25. Why MAC Is Needed When IP Exists
-
-A switch could map IP addresses to sockets instead of MAC addresses. There are three reasons it does not.
-
-**1. The frame needs a "next machine" field separate from the final destination.** For A sending to G (section 17), "to IP" is G's IP the whole way. On building 1's switch, the frame must go to R1, not G, and G is not even on that switch. A switch looking only at "to IP" would look for G and find no socket. So the frame needs one field for "the next machine on this cable" and a separate one for "the final destination". The MAC address is the first. Without it, another field would be needed for the same job.
-
-**2. A computer must send frames before it has an IP address.** A newly plugged-in laptop often has no IP yet, and gets one by sending a frame that asks for one (section 26). It needs an address that already exists, and the MAC address is stored in the hardware at the factory. ARP is the same kind of case: an ARP message has no IP group at all and travels with MAC addresses only.
-
-**3. The cable layer was designed to carry more than IP.** When this frame format was created in the 1970s and 80s, several competing protocols ran on the same cables, and IP was only one of them. That is what the type field (section 19) is for. Switches and hardware deliver frames using only the MAC group, whatever is inside. The hardware can throw away frames for other computers by comparing 6 bytes at a fixed position, without understanding any protocol.
-
-The IP address says where the frame should end up. The MAC address says which machine on this cable takes it next.
-
----
-
-## 26. Getting an IP Address Automatically
-
-### The Problem
-So far a person typed each computer's settings. A computer needs three:
-
-```text
-my IP address        192.168.1.23
-my local network     everything starting with 192.168.1
-default gateway      192.168.1.254
-```
-
-Typing them is slow and mistakes are easy. If two computers get the same IP, frames for that IP reach whichever one answered ARP last. A laptop moving between places would need new settings each time.
-
-### Where the Settings Live
-A computer's settings are stored in its own kernel. A person can set them in two ways:
-
-* With commands that change the kernel's tables directly. These are lost on reboot.
-
-  ```bash
-  sudo ip addr add 192.168.1.5/24 dev eth0
-  sudo ip route add default via 192.168.1.254
-  ```
-
-  The first gives the cable socket `eth0` the address 192.168.1.5 and the local network prefix. The second adds the "everything else -> 192.168.1.254" row to the routing table, which is the default gateway.
-
-* In a settings screen or file that a program reads at startup and turns into the same commands. On a Linux desktop like Ubuntu: Settings -> Network -> IPv4, switch "Automatic (DHCP)" to "Manual", and type the address, prefix and gateway.
-
-Either way, the result ends up in the kernel. `ip addr` shows the address, and `ip route` shows the default gateway row.
-
-### The Fix: Ask Everyone
-It is the same trick as ARP: ask everyone, and the one who knows answers. One machine on the local network chooses settings for the others. At home, that is the home router box. It keeps a list of addresses already handed out, so it never gives the same one twice. This machine is a **DHCP server** (Dynamic Host Configuration Protocol).
-
-The laptop does not know anyone's address yet, not even the router's. But it knows its own MAC address, because it is stored in the hardware.
-
-1. **Laptop -> everyone** (a broadcast, like ARP): "My MAC is `aa:aa:...`. I need settings."
-2. **Router -> that MAC**: "Use 192.168.1.23. Your local network is 192.168.1. Your gateway is 192.168.1.254."
-
-The laptop's kernel stores the three settings, and from then on works like A in the earlier sections.
-
-The real protocol uses four messages, not two. The extra two are the laptop saying "I am taking this one" and the router saying "confirmed". They exist because a network can have more than one DHCP server, and the laptop must say whose offer it took. The messages use UDP (section 19).
-
-### The Lease
-The address is loaned for a set time, for example 24 hours. This is the **lease**. Halfway through, the laptop asks the server to extend it. If the laptop leaves and stops asking, the lease runs out and the address can go to another computer.
-
-### When the Messages Happen
-* Right when the laptop connects. When the cable is plugged in, the hardware detects a signal from the other end, and a program on the laptop (NetworkManager on most Linux desktops) sends message 1. All four messages usually finish in well under a second.
-* At boot, if the cable is already plugged in.
-* Halfway through the lease, when renewing. The laptop already knows the server and its own address, so it skips the first two messages and sends only "I would like to keep 192.168.1.23" directly to the server, which confirms.
-
-When reconnecting to a network used before, the laptop often asks for its previous address, and the server usually gives it back if no one else has it.
-
-### Where the DHCP Server Sits
-* It must be on the same local network. The laptop's first message is a broadcast, and routers do not forward broadcasts. A DHCP server in building 2 would never hear a laptop in building 1.
-* Its own IP is typed in by hand, since it cannot ask anyone. At home, the DHCP server is the home router box, so its address is the same as the default gateway, for example 192.168.1.254. Addresses typed in by hand are **static addresses**. Machines that others need to find at a known address (routers, DHCP servers, printers, servers) usually get static addresses.
-
-### Why IP Inside a Local Network
-With only one local network and nothing else, MAC addresses alone could deliver every frame. IP is needed because of routers: it is the address that still means something after the frame leaves the switch.
-
-Programs always use IP addresses, whether the destination is on the same switch or in another country. A program calls `sock.connect(("192.168.1.2", 7000))` and never sees or handles a MAC address. The kernel does the rest:
-
-1. It looks up 192.168.1.2 in the routing table. It matches "192.168.1.x, directly", so this machine is on the same local network.
-2. It looks up 192.168.1.2 in the ARP table, or sends an ARP broadcast if it is not there, and gets that machine's MAC.
-3. It puts that MAC in "to MAC" and sends the frame through the switch straight to that machine.
-
-If the IP were outside the local network, step 1 would match the "everything else" row, and step 2 would look up the default gateway's MAC instead.
-
----
-
-## 27. What /24 Means
-
-### Prefix Length
-An IP address is 4 bytes, which is 32 bits. `192.168.1.23` is just those 4 bytes written as numbers.
-
-`/24` means "the first 24 bits are the local network part". 24 bits is exactly the first 3 bytes. So `192.168.1.0/24` means every address whose first 3 bytes are `192.168.1`, the exact form of "everything starting with 192.168.1". The last byte identifies each computer, and one byte holds 256 values:
-
-```text
-192.168.1.0/24  covers  192.168.1.0  to  192.168.1.255   (256 addresses)
-```
-
-Two are reserved: `.0` is the name of the local network itself, and `.255` means "every computer on this local network" at the IP level. So 254 are usable.
-
-### Other Sizes
-A smaller number after the slash means fewer fixed bits and more addresses:
-
-```text
-/24   first 3 bytes fixed    256 addresses
-/16   first 2 bytes fixed    65,536 addresses
-/8    first 1 byte fixed     about 16.7 million addresses
-```
-
-The number does not have to fall on a byte boundary. `192.168.1.0/26` fixes the first 26 bits, leaving 6 bits for computers, and 6 bits hold 64 values. So it covers `192.168.1.0` to `192.168.1.63`. This is how one block of addresses is split into smaller local networks.
-
-### How the Kernel Uses It
-To check whether an address matches a row, the kernel compares only the first N bits and ignores the rest. A laptop's routing table, as `ip route` prints it:
-
-```text
-default via 192.168.1.254 dev eth0
-192.168.1.0/24 dev eth0
-```
-
-* The second line is the "directly" row: any address whose first 24 bits match is on the local network.
-* `default` is the "everything else" row. As a prefix it is `0.0.0.0/0`. Zero bits have to match, so every address matches it. When several rows match, the one with the larger number after the slash wins, because it is more specific.
-
-### Subnet Mask
-A **subnet mask** is another way of writing the same information as `/24`. It is a 4-byte number, written like an IP address, where every bit in the network part is 1 and every bit in the computer part is 0. For `/24`:
-
-```text
-11111111.11111111.11111111.00000000
-   255  .   255  .   255  .    0
-```
-
-So `255.255.255.0` and `/24` mean the same thing. The `/24` form counts the 1s instead of writing them out. Both are in use.
-
-The kernel combines an address with the mask bit by bit. Where the mask has a 1, the address's bit is kept. Where it has a 0, the bit becomes 0. What remains is the local network part:
-
-```text
-192.168.1.23   with mask 255.255.255.0   ->  192.168.1.0
-192.168.2.4    with mask 255.255.255.0   ->  192.168.2.0
-```
-
-The first matches the local network (`192.168.1.0`), so it is local. The second does not, so it goes to the default gateway.
-
-"Subnet" is short for subnetwork: one local network, especially one made by splitting a larger block of addresses, like the `/26` split above.
-
----
-
-## 28. Two Computers Without a Cable
-
-### The Setup
-Two laptops, A and B, in one room. No cable, no other devices nearby, no encryption. A's program sends `hi` to B's program, as in section 19.
-
-### What Replaces the Cable
-On the cable, A's hardware raised and lowered the voltage on a copper wire, and B measured it at the other end of the same wire.
-
-Each laptop has a **wireless chip**: a piece of hardware like the one behind the cable socket, connected to a short piece of metal called an **antenna**.
-
-* **Sending**: the chip pushes an electric current back and forth along A's antenna, very fast. A current that keeps changing direction produces a **radio wave**: changing electric and magnetic force that spreads out from the antenna in every direction at the speed of light. It does not need air.
-* **Receiving**: when the wave reaches B's antenna, it creates a very small current in that metal, swinging back and forth at the same rate. B's chip measures that small current.
-
-```text
-cable:     A's chip -> voltage on copper -> B's chip
-wireless:  A's chip -> current in A's antenna -> wave through the room -> small current in B's antenna -> B's chip
-```
-
----
-
-## 29. Frequency and Channels
-
-### Frequency
-How many times per second the current swings back and forth is the **frequency**. Laptop wireless chips use about 2.4 billion or 5 billion swings per second, written **2.4 GHz** and **5 GHz** (gigahertz, billions per second).
-
-An FM radio set to 98.3 measures only waves swinging 98.3 million times per second and ignores waves at other frequencies. A wireless chip works the same way: it can be set to measure one frequency, and waves at other frequencies do not disturb that measurement.
-
-### Channels
-The frequencies a chip can use are divided into numbered slots called **channels**:
-
-```text
-2.4 GHz group:   channel 1 = 2.412   channel 6 = 2.437   channel 11 = 2.462   (billion per second)
-5 GHz group:     channel 36 = 5.180  channel 40 = 5.200  channel 44 = 5.220
-```
-
-A and B must use the same channel to hear each other. "Agreed frequency" means exactly that: both chips are set to the same channel. Choosing the same channel replaces plugging in a cable. In the sections below, both use channel 36.
-
-In a real building, many devices use the same few channels, and everyone close enough to hear each other on one channel shares it. That is why wireless in a crowded building is slower. Not covered yet. The sections below stay with A and B only.
-
----
-
-## 30. Putting Bits on the Wave
-
-### Time Slot
-On the cable (section 2), A held the wire at high or low voltage for a fixed short time, then set the next value. B measured once during each of those short times. That fixed short time is a **time slot**: the stretch of time during which A sends one value and B measures one value.
-
-```text
-time slot:   |  1st  |  2nd  |  3rd  |  4th  |
-cable:         high    low     low     high
-bits:          1       0       0       1
-```
-
-Wireless uses time slots the same way. During one time slot, A keeps its wave the same. In the next slot, it can change it.
-
-### Level
-On the cable, A had two choices per time slot: high voltage or low voltage. Each of those choices is a **level**.
-
-On wireless, the wave's swings can be big or small. In each time slot, A makes the swings one agreed size. Each agreed size is a level. With two levels:
-
-```text
-small swings  ->  0
-big swings    ->  1
-```
-
-### More Than Two Levels
-If A and B agree on four sizes instead of two, one time slot carries 2 bits:
-
-```text
-size 1 (smallest)   ->  00
-size 2              ->  01
-size 3              ->  10
-size 4 (biggest)    ->  11
-```
-
-* 2 levels: 1 bit per time slot.
-* 4 levels: 2 bits per time slot.
-
-The number of time slots per second stays the same, so 4 levels carry twice as many bits per second.
-
-Real chips change both the size of the swings and the timing of the swings, so they have more combinations than this. The slowest setting uses 2 combinations (1 bit per time slot). The fastest on modern chips uses 1024 combinations (10 bits per time slot).
-
----
-
-## 31. Weak Signal and Noise
-
-### Signal
-The **signal** is A's wave as it arrives at B's antenna, seen by B's chip as a small current swinging back and forth. **Signal strength** is how big those swings are. It depends on distance and walls, and A cannot change it:
-
-* The wave gets weaker the further it travels.
-* Walls absorb part of it.
-
-### Noise
-B's measurement is never perfectly exact. There is always some tiny random electrical activity on every frequency, from electronics and the environment. This is **noise**. It adds a small random amount to what B measures, and its size does not depend on how far away A is.
-
-### Why Far Away Needs Fewer Levels
-The numbers below are made-up units for how big the swings are when they reach B. They are only there to compare sizes. Noise adds or subtracts up to 2 units.
-
-**B is far, so A's levels arrive small.** With 4 levels (2 bits per time slot):
-
-```text
-level arrives as:   0    3    6    9
-means:              00   01   10   11
-```
-
-A sends the level that arrives as 6 (bits `10`). Noise adds 2, so B measures 8. 8 is closer to 9 than to 6, so B reads `11`. Wrong bits.
-
-With 2 levels (1 bit per time slot):
-
-```text
-level arrives as:   0    9
-means:              0    1
-```
-
-A sends the level that arrives as 9. Noise subtracts 2, so B measures 7. 7 is still much closer to 9 than to 0, so B reads `1`. Correct.
-
-With fewer levels, the levels are further apart, so noise cannot push one level close to another.
-
-**B is close, so the same levels arrive 10 times bigger.**
-
-```text
-4 levels arrive as:   0    30   60   90
-```
-
-Noise is still at most 2 units. 60 plus 2 is 62, which is still clearly 60. So 4 levels or more read correctly, and A can put more bits in each time slot.
-
-```text
-close:   strong signal -> more levels -> more bits per time slot -> more bits per second
-far:     weak signal   -> fewer levels -> fewer bits per time slot -> fewer bits per second
-```
-
-Fewer bits per time slot does not make the signal stronger. It makes a weak signal readable. That is why wireless gets slower in a far room. A cable does not have this problem, because its signal strength stays the same.
-
----
-
-## 32. Telling B the Speed of Each Frame
-
-### The Cable: Agreed Once
-On a cable, the speed is agreed once, when the cable is plugged in. Before any frames are sent, the two pieces of hardware exchange short signals listing the speeds each supports, for example 100 Mbit/s and 1 Gbit/s, and both pick the highest one they have in common. This is **auto-negotiation**. After that, every frame uses that speed for as long as the cable stays plugged in. The start pattern (section 3) only marks the start and lines up timing.
-
-### Wireless: Chosen Per Frame
-The signal strength changes all the time: someone walks between the laptops, a door closes, a laptop is carried to another room. A speed that worked a second ago may now produce wrong bits. So A's chip picks the number of levels again for each frame, based on how well its recent frames got through.
-
-B cannot know in advance which setting A picked. If B measured with the wrong setting, it would read wrong bits. So every wireless frame starts with two parts, both sent at the slowest setting, which both chips know in advance:
-
-```text
-[start pattern][short header: speed + length][rest of the frame at that speed]
- ^--- both sent at the slowest setting ---^
-```
-
-* **Start pattern**: same job as on the cable. It marks the start and lets B line up its measuring moments with A's.
-* **Short header**: "the rest of this frame uses this many bits per time slot" and "the rest is this many bytes long".
-
-B's chip reads the short header, switches its measuring to that setting for the rest of the frame, and from the length knows when the frame will end.
-
----
-
-## 33. Busy and Quiet
-
-### The Problem
-Waves are always present on every channel, at least as noise. So "is the other laptop sending right now?" cannot mean "is there any wave at all?".
-
-### What the Chip Measures
-B's chip keeps measuring how strong the wave is on channel 36:
-
-```text
-A is sending a frame       strong wave       -> busy
-nobody is sending          only noise        -> quiet
-```
-
-* **Quiet**: nothing stronger than noise. It does not mean zero waves.
-* **Busy**: the strength is above a fixed limit built into the chip, or the chip recognizes the start pattern of a frame, even a weak one.
-
-With only A and B, "busy" means "the other laptop is sending right now". This is the same as on the cable, where some voltage was always on the wire and B ignored it until it saw the start pattern.
-
----
-
-## 34. Finding Each Other
-
-### The Problem
-With a cable, a person plugged A into B, and that decided who is connected. In the air there is no plug. B does not know that A exists or which channel A uses.
-
-### A Announces Itself
-About 10 times per second (every 102.4 milliseconds), A's chip sends a short frame called a **beacon**, whether or not anyone is listening:
-
-```text
-to MAC:      ff:ff:ff:ff:ff:ff     (everyone, like the ARP broadcast)
-from MAC:    aa:aa:aa:aa:aa:aa     (A's wireless chip)
-name:        "a-laptop"            (typed by a person in A's settings)
-channel:     36
-```
-
-A wireless chip has a 6-byte MAC address stored at the factory, the same as cable hardware (section 13).
-
-The name is the **SSID** (service set identifier). It is the name that appears in a laptop's list of wireless networks.
-
-### B Looks for Announcements
-B does not know A's channel, so it tries them one at a time: set the chip to channel 1, listen for about a tenth of a second, note any beacons, then channel 6, and so on through every channel. This is **scanning**. B ends up with a list:
-
-```text
-name        MAC                  channel
-a-laptop    aa:aa:aa:aa:aa:aa    36
-```
-
-That list is what is shown when you click the wireless icon. To save time, B can also send a short "is anyone here?" frame on each channel and listen for replies instead of waiting for beacons.
-
-### B Joins
-A person on B picks "a-laptop". B's chip switches to channel 36 and sends a frame to A's MAC: "I want to join". A replies "accepted". This is the wireless version of plugging in the cable. From then on, A and B send frames to each other's MAC addresses on channel 36.
-
----
-
-## 35. The Wireless Frame
-
-A's kernel builds the TCP group and the IP group exactly as on the cable (section 19). Only the outer group, built by the wireless chip, is different:
-
-```text
-cable:     [start pattern][to MAC][from MAC][type 0x0800]                                   [IP group][TCP group] hi [CRC]
-wireless:  [start pattern][short header][kind][to MAC][from MAC][hw seq][type 0x0800]      [IP group][TCP group] hi [CRC]
-```
-
-* **start pattern** and **short header**: section 32.
-* **kind**: data, ack, beacon, or join request. On the cable every frame carried data, so this field was not needed.
-* **to MAC / from MAC**: same as on the cable.
-* **hw seq**: a hardware-level sequence number (section 39).
-* **type 0x0800**: same as on the cable, an IP group comes next.
-* **CRC**: the same 4-byte damage check.
-
-The real wireless frame also has a third MAC field. It is used only once a box in the middle is involved. Not covered here.
-
----
-
-## 36. Why They Must Take Turns
-
-### One Channel, Two Laptops
-The cable had separate wire pairs for each direction, so A and B could send at the same moment (full duplex, section 5). The air has one channel 36, shared by both. If A and B send at the same moment on the same channel, the two waves add together, and each receives a mix that is neither frame. This is a **collision** again. So only one can send at a time: half duplex.
-
-### Why a Collision Cannot Be Detected
-On the old shared cable (section 5), a computer kept measuring the wire while sending and stopped when it noticed a collision. Wireless cannot do that:
-
-* While A is sending, its own wave at its own antenna is millions of times stronger than B's wave arriving from across the room. A cannot measure B underneath it.
-* Most chips use the antenna for either sending or receiving, not both at the same time.
-
-So A has no way to notice a collision while sending. The rules must avoid collisions before they happen, and A learns that a frame arrived only when B replies.
-
----
-
-## 37. The Sending Rules
-
-These times are for 5 GHz channels. A **microsecond** is one millionth of a second.
-
-1. **Listen.** A's chip measures channel 36. If it is busy, A waits until it is quiet.
-2. **Fixed wait.** A waits until the channel has been quiet for 34 microseconds.
-3. **Random wait.** A picks a random number from 0 to 15 and counts down that many slots of 9 microseconds each. It counts only while the channel stays quiet. If B starts sending, A pauses the countdown and continues later from where it stopped (section 38).
-4. **Send.** When the countdown reaches 0, A sends the whole frame. It cannot detect a collision, so it does not stop partway.
-5. **B checks.** B's chip checks the CRC. If it fails, B drops the frame and does nothing else.
-6. **B acks.** If the CRC passes, B's chip waits 16 microseconds and sends a short frame with kind = ack and to MAC = A.
-7. **No ack.** If no ack arrives shortly after A's frame ends, A assumes the frame was damaged. It doubles the random range (0 to 31, then 0 to 63, and so on) and goes back to step 1. After a fixed number of tries (often 7), it gives up on that frame.
-
-These rules are called **CSMA/CA** (carrier sense multiple access with collision avoidance). "Carrier sense" means listening to the channel before sending.
-
-### Why B Waits Exactly 16 Microseconds
-16 microseconds is about the shortest time B's chip needs to do three things after A's frame ends:
-
-1. Finish receiving the last bits.
-2. Check the CRC.
-3. Switch the antenna from receiving to sending.
-
-The number is fixed in the standard, so both chips know it in advance. It has no other meaning.
-
----
-
-## 38. The Waits in Order
-
-### Example
-A has two frames to send. B has one frame of its own to send to A. A's first frame has just ended.
-
-```text
-time (microseconds)       what happens
-0                         A's frame 1 ends, channel quiet
-16                        B's chip sends the ack for frame 1
-                          (B's own frame must wait 34 + random, so it cannot go first)
-ack ends                  channel quiet
-then 34                   A (frame 2) and B (its own frame) both finish the fixed wait
-                          A picked 3 random slots, B picked 11
-then 27 (3 slots)         A's count reaches 0, A sends frame 2
-                          B has counted 3 slots, sees the channel busy, pauses with 8 left
-frame 2 ends              B does nothing while frame 2 is on the air
-then 16                   B's chip sends the ack for frame 2
-ack ends                  channel quiet
-then 34                   fixed wait done
-then 72 (8 slots)         B's count reaches 0, B sends its own frame
-then 16 after it ends     A's chip sends the ack for B's frame
-```
-
-### Why Each Wait Exists
-* **The ack waits 16, new data waits at least 34.** The ack always goes before any new data frame, so A learns right away that its frame arrived. If the waits were equal, B's own data frame could start first, A would see no ack, and A would resend a frame B already has.
-* **Random wait.** A and B both finish the fixed 34 at the same moment. Without a random part, they would start at the same moment and collide every time. With 3 and 11, A goes first, and B sees the channel busy and holds off.
-* **B continues from 8 instead of picking a new number.** B already waited through 3 slots. If A has a third frame, A must pick a new number from 0 to 15, for example 12. B has only 8 left, so B goes first. Keeping the leftover count means the one that has waited longer gets its turn sooner, and neither laptop keeps the channel all the time.
-* **B does not count while A's frame is on the air.** B continues counting only after A's frame has ended, the ack has been sent, and the channel has been quiet for the fixed 34 again.
-* **Doubling the range after a failure.** If A and B still collide, picking from 0 to 31 makes it less likely they pick the same number again.
-
----
-
-## 39. The Hardware Ack and hw seq
-
-### Why the Chip Sends the Ack
-16 microseconds is not enough for an interrupt, the driver and the kernel's code to run. The wireless chip has its own small processor running its own small program, separate from the main processor and the kernel. So the chip builds and sends the ack by itself.
-
-```text
-                  hardware ack (wireless)         TCP ack (kernel)
-built by          B's wireless chip               B's kernel TCP code
-covers            one frame, just received        bytes, by sequence number
-travels           only from B's antenna to A's    to the other program's computer
-sent after        16 microseconds                 usually within milliseconds
-```
-
-The hardware ack only means "the frame reached my antenna undamaged". TCP still runs above it unchanged, because the frame can still be lost afterwards, for example when B's kernel drops it because the socket's receive buffer is full (section 10).
-
-On the cable, a damaged frame was dropped silently and TCP noticed later (section 8). Wireless adds a per-frame ack because collisions and noise are much more common in the air.
-
-### Why hw seq
-B's ack itself can be damaged. Then A gets no ack, resends, and B receives the same frame twice. B's chip sees the same hw seq number as the last frame from A and drops the copy. It still sends an ack again, because A clearly did not get the first one. This is the same problem and fix as section 8, handled again at the chip level, so the kernel rarely sees duplicates.
-
----
-
-## 40. The Full Path for `hi`
-
-```text
-1.  A's program calls send("hi").
-2.  A's kernel adds the TCP group and the IP group (same as the cable).
-3.  A's driver hands the bytes to the wireless chip.
-4.  A's chip adds the wireless group (kind = data, to MAC = B, from MAC = A, hw seq) and the CRC.
-5.  A's chip listens on channel 36, waits 34 microseconds of quiet, then its random slots.
-6.  A's chip sends the start pattern and short header at the slowest setting, then the rest
-    of the frame at the setting it picked, as changes in the wave on channel 36.
-7.  B's antenna picks up the wave. B's chip reads the short header, switches to that setting,
-    reads the rest of the bits, and checks the CRC.
-8.  16 microseconds after the frame ends, B's chip sends an ack to A.
-9.  A's chip gets the ack and moves on to its next frame.
-10. B's chip copies the frame into RAM (DMA) and interrupts the processor.
-11. B's driver and kernel remove the wireless group, the IP group and the TCP group.
-12. B's kernel puts "hi" into the socket's receive buffer. TCP sends its own ack later.
-13. B's program calls recv() and gets "hi".
-```
-
-Steps 1 to 3 and 10 to 13 are the same as on the cable (section 6). Steps 4 to 9 are the wireless part. The program cannot tell whether a cable or the air carried its bytes.
-
----
-
-## 41. Cable and Wireless Side by Side
-
-```text
-                       cable                               wireless
-carries bits           voltage on copper                   radio wave on a channel
-finding each other     a person plugs in the cable         beacon, scanning, join
-speed                  agreed once at plug-in              chosen per frame, stated in the short header
-speed vs distance      fixed                               slower when far or behind walls
-both send at once      yes (separate wire pairs)           no (one channel, take turns)
-noticing a collision   no collisions on modern cables      cannot detect, so avoid it
-per-frame "got it"     no                                  yes, from B's chip after 16 microseconds
-duplicate check        only TCP's                          hw seq, plus TCP's
-```
-
----
-
-## 42. Others Nearby Can Receive Every Frame
-
-### The Problem
-The wave goes in every direction. Any device nearby set to channel 36 receives every bit A and B send. On a cable, someone would have to physically plug into the wire.
-
-### Encryption
-The bits cannot be kept from a nearby receiver, but A and B can change the bytes so they are useless without a secret number only A and B know. Tiny version, with the secret number 7:
-
-```text
-A's program sends     h    i
-as byte values        104  105
-A adds 7              111  112     <- what goes through the air
-B subtracts 7         104  105  ->  h  i
-```
-
-Turning bytes into unreadable bytes with a secret is **encryption**. The secret is the **key**. Turning them back is **decryption**. A one-byte key has only 256 possible values, so a nearby laptop could try all of them. Real wireless chips use a method called **AES** with a 16-byte key, which has far too many possible values to try, and mixes the bytes so patterns in the original do not show.
-
-The MAC group stays readable, because B's chip must read "to MAC" before doing anything else. A nearby laptop can still see which two devices are talking, when, and how much, but not what they say. The wireless security setting shown as "WPA2" or "WPA3" in a laptop's settings is the set of rules that does this. With no password set (an "open" network), the bytes go through the air unencrypted.
-
-### Wireless Encryption vs TLS
-On a cable there is normally no encryption at the cable level. Without TLS, raw bytes travel on the copper. (An optional cable-level encryption, MACsec, exists, but is mostly used in data centers and large companies.)
-
-```text
-                      who encrypts           protects
-wireless (WPA2/3)     the wireless chip      only the air between two antennas
-TLS                   the programs           the whole path, program to program
-```
-
-Wireless encryption ends at the receiving antenna. If the frame continues over a cable, it travels raw there. TLS is encrypted by A's program and decrypted only by the program on the final computer, across every cable, air step and router in between. The two are used together.
-
----
-
-## 43. Three Laptops on One Channel
-
-### The Setup
-A third laptop, C, is in the same room as A and B, also on channel 36. C joins the same way B did (section 34): it scans, hears the beacon on channel 36, sends "I want to join", and gets "accepted".
-
-### The Air Already Does the Hub's Job
-On the cable, one wire has only two ends, so three computers needed a hub (section 13). The hub copied every frame to every socket, and each computer kept only frames whose "to MAC" was its own.
-
-In the air, A's wave spreads in every direction. Every frame A sends reaches both B's antenna and C's antenna. No box is needed for that.
-
-```text
-        A  ---- wave ---->  B
-         \
-          ---- wave ---->  C
-```
-
-A sends `hi` to B, with "to MAC" = B:
-
-```text
-                            B's chip                                C's chip
-hears the start pattern     yes                                     yes
-receives the whole frame    yes                                     yes
-CRC correct                 yes                                     yes
-"to MAC" is mine?           yes                                     no
-result                      keeps it, acks after 16 microseconds    drops it, no ack
-```
-
-C receives every frame, the same as a computer behind a hub, and keeps only its own.
-
-### What Changes: Busy Is Busy for Everyone
-With two laptops, "busy" meant "the other laptop is sending to me". Now, while A sends to B, the channel is busy for C too. C has to wait even though the frame is not for C. All three laptops share the time on one channel.
-
----
-
-## 44. Why Nobody Can Start in the Ack Gap
-
-### The Problem
-C sees A's frame end, then a 16 microsecond gap, then B's ack. Why can C not start sending inside that gap?
-
-### The Two Waits
-B waits 16 microseconds before its ack. C must see 34 microseconds of quiet in a row before it may even start its random countdown (section 37). 16 is less than 34, so B's ack always starts before C's wait can finish.
-
-Say A's frame takes 200 microseconds and an ack takes about 44:
-
-```text
-time (microseconds)   air                     B                              C
-0 to 200              busy, A's frame         receiving                      waiting, channel busy
-200                   A's frame ends          checks CRC, switches antenna   starts counting quiet, needs 34
-200 to 216            quiet                   preparing the ack              has counted 16 of 34
-216                   busy, B's ack starts    sending the ack                count broken at 16, must start again from 0
-216 to 260            busy, B's ack           sending the ack                waiting, channel busy
-260                   ack ends                done                           starts counting quiet again from 0
-260 to 294            quiet                                                  counts 34 of quiet
-294 onward            quiet                                                  counts its random slots, then sends
-```
-
-C's 34 must be quiet in a row. B's ack breaks it at 16, so C can never reach 34 inside the gap.
-
-### If C Were Allowed to Send After 16
-C's frame and B's ack would start at the same moment. Both waves arrive at A's antenna together and mix, and A can read neither:
-
-* A gets no ack, so it resends `hi`. B drops the copy using hw seq (section 39), but the resend wasted channel time.
-* C's frame also mixed at its receiver, so C gets no ack either and must resend.
-
-The 16 vs 34 difference does one job: the time right after a frame belongs to that frame's ack, and no one else can start then.
-
----
-
-## 45. Why Not Put Each Pair on Its Own Channel
-
-A laptop's wireless chip measures one channel at a time (section 29). If A and B used 36 and C used 40, C's chip would measure only 40 and never receive anything A or B send. For A to reach C, one of them would have to switch channels, and while a chip is set to the other channel, it misses every frame sent on its own.
-
-So laptops that all need to reach each other stay on one channel and take turns.
-
----
-
-## 46. Two Senders Pick the Same Random Number
-
-### The Setup
-After an ack ends, both A and C have a frame to send. Both count 34 microseconds of quiet, and both happen to pick 5 random slots.
-
-```text
-time after quiet starts   A                          C
-0 to 34                   counts quiet               counts quiet
-34 to 79                  counts 5 slots x 9         counts 5 slots x 9
-79                        count reaches 0, sends     count reaches 0, sends
-```
-
-Both waves are on the channel at once. At each receiver they mix, and the CRC fails.
-
-### The Whole Frame Is Wasted
-Neither A nor C can notice the collision while sending (section 36). Each one's own wave is millions of times stronger at its own antenna. So both send their whole frame. On the old shared cable, a collision was noticed partway through and the sender stopped early. In the air, the full frame time is lost.
-
-### Recovery
-Both wait for an ack, get none, and follow the existing rule (section 37, step 7):
-
-1. Double the range to 0 to 31 and pick again. For example, A picks 12 and C picks 25.
-2. A reaches 0 first and sends.
-3. C sees the channel busy with 13 slots left and pauses. It continues after A's frame, the ack, and 34 microseconds of quiet.
-
-### How Often It Happens
-```text
-range     choices   chance both pick the same
-0 to 15   16        1 in 16, about 6%
-0 to 31   32        1 in 32, about 3%
-0 to 63   64        1 in 64, about 1.5%
-```
-
-With two laptops this rarely mattered, because B was usually only sending acks. With three, two senders often want the channel at the same time, so this happens more.
-
----
-
-## 47. Laptops That Cannot Hear Each Other
-
-### The Setup
-A and C are at opposite ends of a long house, with B in the middle:
-
-```text
-A ------ 15 m ------ B ------ 15 m ------ C
-         A's wave reaches B         C's wave reaches B
-A's wave is too weak at C, and C's wave is too weak at A
-```
-
-At C's antenna, A's wave is weaker than the busy limit (section 33), so to C it is the same as noise.
-
-### What Goes Wrong
-A's frame takes 200 microseconds:
-
-```text
-time (microseconds)   A                         C measures       C                                       at B
-0                     starts sending to B       only noise       not sending                             A's wave
-50                    still sending             quiet            wants to send to B, counts 34 of quiet  A's wave
-84                    still sending             quiet            picks 3 random slots, counts 27         A's wave
-111                   still sending             quiet            sends to B                              A's and C's waves mix
-200                   frame ends, waits for ack                  still sending                           CRC fails for both
-```
-
-B cannot read either frame and sends no ack. A and C both double their range and try again.
-
-### Why the Random Wait Does Not Help Here
-When all three hear each other, A and C collide only if both reach 0 in the same 9 microsecond slot. Otherwise the later one sees the channel busy and pauses.
-
-Here C never hears A, so C's countdown never pauses. They collide whenever C starts at any moment during A's 200 microsecond frame. 200 microseconds is about 22 slots. With a range of 0 to 15, almost any number C picks lands inside A's frame. Doubling the range helps slowly, and every failed try wastes a whole frame.
-
-### Name
-A **node** is any device that sends and receives on the network, here a laptop. This is the **hidden node problem**: C is hidden from A and A is hidden from C, but both reach B.
-
-The cable did not have this. Through a hub, every computer received every frame, so "busy" was the same for everyone.
-
----
-
-## 48. RTS and CTS
-
-### The Idea
-B is the only one that hears both A and C. So B announces how long the channel will be busy. A first asks B for permission with a short frame. B answers with a short frame that both A and C receive, and that answer carries a time. C treats the channel as busy for that time, even though C hears only noise.
-
-### Two New Kinds of Frame
-The "kind" field (section 35) gets two more values:
-
-```text
-kind                       sent by    means                         size
-RTS (request to send)      A -> B     "I want to send you a frame"  20 bytes
-CTS (clear to send)        B -> A     "go ahead"                    14 bytes
-```
-
-### One New Field: Duration
-Right after "kind", every frame carries a **duration**: a number of microseconds. It says how long the channel stays busy after this frame ends, until the whole exchange is finished.
-
-```text
-[start pattern][short header][kind][duration][to MAC][from MAC][hw seq]...
-```
-
-### The New Busy Rule
-When a chip receives a frame that is not for it, it reads the duration and starts a timer. Until the timer runs out, the chip treats the channel as busy, no matter what its antenna measures. A chip now has two ways to decide busy:
-
-1. It measures a wave (section 33).
-2. Its timer is still running.
-
-### Timeline
-A has a 200 microsecond data frame for B. At the slowest setting, an RTS takes about 52 microseconds, and a CTS and an ack about 44 each.
-
-```text
-time (microseconds)   air                          A                  B               C
-before 0              quiet                        34 + random slots
-0 to 52               A's RTS, duration 336        sends RTS          receives it     hears nothing
-52 to 68              gap                                             waits 16
-68 to 112             B's CTS, duration 276        receives it        sends CTS       receives CTS, sets timer to 112 + 276 = 388
-112 to 128            gap                          waits 16                           timer running: busy
-128 to 328            A's data                     sends hi           receives it     hears nothing, timer says busy
-328 to 344            gap                                             waits 16        timer says busy
-344 to 388            B's ack                      receives it        sends ack       timer says busy
-388                   quiet                        done                               timer ends, starts counting 34 of quiet
-```
-
-Where the durations come from:
-
-```text
-RTS duration = 16 + CTS 44 + 16 + data 200 + 16 + ack 44 = 336
-CTS duration = 16 + data 200 + 16 + ack 44             = 276
-```
-
-### What Can Still Go Wrong
-C cannot hear A's RTS, so C may still send during it, and the RTS collides. But the RTS is 52 microseconds, not 200. A gets no CTS, doubles its range and tries again. The time lost is one short RTS instead of one full data frame.
-
-### Cost
-Every frame now needs an RTS, a CTS and two 16 microsecond gaps first: 52 + 16 + 44 + 16 = 128 microseconds extra. For a small frame that is more than the frame itself. So chips use RTS and CTS only for frames above a set size, and the size is a setting in the chip.
-
----
-
-## 49. The Access Point
-
-### The Problem
-RTS and CTS stop A and C from talking over each other. But if A wants to send `hi` to C, A's wave never reaches C at all.
-
-Laptops do not forward frames for each other. Your laptop does not pass along someone else's frames.
-
-### The Box in the Middle
-The fix is a small box placed in the middle of the space, whose only job is to be the center of the wireless network. It is an **access point**.
-
-* It sends the beacons (section 34). Every laptop joins the access point, not another laptop.
-* Every frame goes laptop -> access point -> laptop. A never sends straight to C, even when A and C are side by side.
-
-### What It Fixes
-* **Reach**: the access point sits in the middle, so A and C can exchange frames even when they cannot hear each other.
-* **Hidden laptops**: A and C may still not hear each other, so they can still both send to the access point at the same time. But every laptop hears the access point, so when the access point sends a CTS, all of them receive it and set their timers. RTS and CTS now work for everyone.
-
-### What It Costs
-Each frame crosses the channel twice: once to the access point and once from it, even for two laptops side by side.
-
----
-
-## 50. Why the Air Needs a Third MAC
-
-### The Access Point Is Like a Switch
-The access point does the same job as the switch (section 14): it moves frames between devices inside one local network, and it does not touch the IP group or the TCP group.
-
-### Why the Switch Needs Only Two MACs
-On a cable, A's wire goes only to the switch. The switch receives A's frame because it sits at the other end of the wire. Nothing in the frame needs to name the switch. The frame names only the final destination ("to MAC" = C), and the switch reads that to pick a socket. Two MAC fields are enough: to and from.
-
-### Why the Air Needs Three
-A's wave reaches every chip in range, including C if C is close. So the frame must say which chip should take it now and send the hardware ack. That is the access point, not C. Only one chip may ack: if two chips acked after 16 microseconds, their acks would collide. So two different machines must be named: the access point now, and C at the end.
-
-The MAC fields in a wireless frame:
-
-```text
-receiver      the chip that should take this wave now and send the hardware ack
-transmitter   the chip sending this wave now
-third MAC     the other end: final destination on the way in, original sender on the way out
-```
-
-A sends `hi` to C:
-
-```text
-                      receiver        transmitter     third MAC
-A -> access point     access point    A               C (final destination)
-access point -> C     C               access point    A (original sender)
-```
-
-If C is close and hears the first frame, C's chip sees receiver = access point, not itself, and drops it. C keeps only the second frame.
-
-A wire goes to one place. A wave reaches everyone in range. That is why the air needs the third MAC and the cable does not.
-
----
-
-## 51. A Frame Through the Access Point
-
-### What the Access Point Keeps
-A list of the laptops that joined it. A laptop is added when the access point sends "accepted":
-
-```text
-joined laptops
-aa:aa:aa:aa:aa:aa   (A)
-cc:cc:cc:cc:cc:cc   (C)
-```
-
-This is like the switch's table, but it is filled at join time instead of by watching frames.
-
-### Step by Step
-A sends `hi` to C. A knows C's MAC from ARP, the same as on the cable, and knows the access point's MAC from its beacon. Data frames are 200 microseconds, acks 44:
-
-```text
-time (microseconds)   who sends        what
-before 0                               A waits 34 of quiet + random slots
-0 to 200              A                frame 1: receiver = access point, transmitter = A, third = C
-200 to 216                             access point checks CRC: correct, receiver = me
-216 to 260            access point     hardware ack to A. A knows the access point has it.
-                                       access point reads third = C, finds C in its joined list, builds frame 2
-260 to 348                             access point waits 34 of quiet + random slots (6 x 9 = 54)
-348 to 548            access point     frame 2: receiver = C, transmitter = access point, third = A
-548 to 564                             C checks CRC: correct, receiver = me
-564 to 608            C                hardware ack to the access point
-```
-
-After that, C's chip hands `hi` to C's kernel, and everything from there is the same as on the cable (section 6).
-
-### Notes
-* The access point waits its own 34 and random slots before frame 2, because on the channel it is just one more sender. A or C might also be counting down.
-* There are two hardware acks. The one A gets means "the access point has it", not "C has it". The TCP ack from C's kernel travels back C -> access point -> A the same way.
-* One `hi` uses about 608 microseconds of channel time this way. Sent directly, it would be about 260.
-
----
-
-## 52. Nobody Gives Out Turns
-
-No device tells the others when to send.
-
-A system that gives out turns would work like this: the access point sends "A, you may send now", A sends, then "C, you may send now", C sends, and nobody sends until named.
-
-Wireless does not work that way. Each chip, including the access point's, decides by itself using only what it measures and its own random number:
-
-* Is the channel busy, or is my timer running? Wait.
-* Has it been quiet for 34 microseconds? Count my random slots.
-* Did my count reach 0? Send.
-
-Every chip follows the same rules, so collisions are rare. When one happens, the missing ack leads to a retry.
-
----
-
-## 53. Two Wireless Networks in One Room
-
-### The Setup
-A second access point with its own laptops is in the same room. The two networks are meant to be independent.
-
-### Different Channels
-Network 1 uses channel 36, network 2 uses channel 44. A chip measures only its own channel, so neither network ever receives the other's waves. They are fully independent.
-
-Many access points scan the channels when they start and pick one with little activity to get this case. Others use whatever channel is set in their settings.
-
-### Same Channel
-Both networks share channel 36. The existing rules keep working across both, because they depend only on waves:
-
-* **Busy is busy.** When network 1 sends, network 2's chips measure the wave and wait. A chip does not care which network a wave came from.
-* **Collisions** between the two networks are handled the same way: no ack, double the range, retry.
-* **Frames from the other network are dropped.** Network 2's chips receive network 1's frames, see that the receiver is not them, and drop them.
-* **Timers apply.** A chip starts its timer from any frame not for it, so network 2 also waits during network 1's CTS times.
-
-The two networks stay independent in what they read: neither keeps or uses the other's frames. They are not independent in time. Only one wave can be on a channel at once, so each network gets less channel time and both are slower.
-
-### Name
-People call this a "congested channel", but it is different from the congestion in section 22. That one is a full router queue, handled by TCP's congestion control. This one is networks sharing channel time. Its exact name is **co-channel interference**: "co-channel" means "on the same channel".
-
-Different channels only help while there are enough of them. The 2.4 GHz group has only three channels that do not overlap (1, 6 and 11). The 5 GHz group has more. In a building with many networks, some must share a channel.
-
----
-
-## 54. From the Air to the Cable
-
-### The Setup
-The access point also has a cable socket. Computer D is plugged into it with a cable.
-
-```text
-A ~~~ air ~~~ [access point] ---- cable ---- D
-```
-
-The access point knows where devices are in two ways:
-
-```text
-side           how it learns a MAC
-air            from joining: "I want to join" / "accepted"
-cable socket   from the "from MAC" of frames arriving, the same as a switch
-```
-
-### A Sends `hi` to D
-A knows D's MAC from ARP. A does not know or care that D is on a cable. To A, D is just another MAC.
-
-Frame 1, in the air:
-
-```text
-[receiver: access point][transmitter: A][third: D][type 0x0800][IP group: A -> D][TCP group] hi [CRC]
-```
-
-The access point acks after 16 microseconds as usual. It reads third = D. D is not in its joined list, but it learned D on the cable socket, so it rebuilds the frame as a cable frame.
-
-Frame 2, on the cable:
-
-```text
-[to MAC: D][from MAC: A][type 0x0800][IP group: unchanged][TCP group: unchanged] hi [new CRC]
-```
-
-What the access point changed:
-
-* **Removed** the fields that matter only in the air: kind, duration, hw seq, and the receiver/transmitter split.
-* **Kept** the two MACs that matter at the ends: to = D, from = A.
-* **Copied** the type, IP group, TCP group and data unchanged.
-* **Calculated a new CRC**, because the bytes are different.
-
-### D Replies
-The opposite direction. A cable frame arrives with to = A and from = D. A is in the joined list, so the access point sends it into the air with receiver = A, transmitter = access point, third = D.
-
-### Name
-A device that joins two kinds of network at the MAC level, rebuilding the MAC part of frames but never touching the IP group, is a **bridge**. The access point is a bridge between the air and the cable.
-
----
-
-## 55. The Home Box, With Wireless
-
-The home box in section 23 had a router and a switch inside. Most home boxes also have an access point inside, connected to the switch:
-
-```text
-                     [ home box ]
- internet line ---- router
-                      |
- cable sockets 1-4 -- switch ---- access point ~~~ air ~~~ laptops
-```
-
-* **Router**: joins the home local network to the internet provider's line, through its own separate socket.
-* **Switch**: joins the cable sockets, the router and the access point inside the box. It is there so several computers can be plugged in by cable.
-* **Access point**: joins the laptops in the air to that switch.
-
-So a laptop in the air and a computer on cable socket 2 are on the same local network. A frame between them goes laptop -> access point -> switch -> socket 2, and no router reads it.
-
----
-
-## 56. Local Networks Joined Over Wireless
-
-### Same Router, Same Rules
-A router reads only the IP group (section 19), so it does not care whether a local network is wireless or cable. A wireless local network reaches the router through the access point's cable socket, and the access point rebuilds every frame as a cable frame (section 54).
-
-### Two Buildings With Wireless
-Section 16 again, but the computers in each building use wireless. Each building has an access point plugged into its switch. R sits between the two switches as before.
-
-```text
-building 1                                                          building 2
-A, B, C ~~~ air ~~~ [AP1] -- switch 1 --(s1) R (s2)-- switch 2 -- [AP2] ~~~ air ~~~ D, E, F
-192.168.1.x                                                         192.168.2.x
-```
-
-* AP1 and AP2 are the two access points.
-* R's socket 1 is `192.168.1.254`, with MAC R(s1). R's socket 2 is `192.168.2.254`, with MAC R(s2).
-* A is `192.168.1.1`. D is `192.168.2.4`.
-
-### A Sends `hi` to D
-A makes the same decision as in section 16: D's prefix is not 192.168.1, so the frame goes to the default gateway `192.168.1.254`. A finds R(s1) with ARP. The ARP broadcast goes through AP1 to everyone in building 1, including R's socket 1. R does not forward broadcasts, so building 2 never sees it.
-
-```text
-step                       where           next machine      sender on this step   third MAC   IP group
-1. A -> AP1                air, bldg 1     receiver = AP1    transmitter = A       R(s1)       A -> D, TTL 64
-2. AP1 -> switch 1 -> R    cable, bldg 1   to = R(s1)        from = A              none        A -> D, TTL 64
-3. R -> switch 2 -> AP2    cable, bldg 2   to = D            from = R(s2)          none        A -> D, TTL 63
-4. AP2 -> D                air, bldg 2     receiver = D      transmitter = AP2     R(s2)       A -> D, TTL 63
-```
-
-What each machine does:
-
-* **AP1**: acks A after 16 microseconds and rebuilds the air frame as a cable frame (section 54).
-* **Switch 1**: reads to = R(s1) and sends the frame out of the socket R is on.
-* **R**: exactly what it did in section 16. It reads D's IP, matches 192.168.2.x to socket 2, lowers TTL to 63, finds D's MAC with ARP on building 2's side, and writes a new MAC group: to = D, from = R(s2).
-* **Switch 2**: reads to = D. It learned that D's frames come in through the socket AP2 is on, so it sends the frame there.
-* **AP2**: D is in its joined list, so it rebuilds the frame as an air frame. D's chip acks AP2 after 16 microseconds.
-
-### Things to Notice
-* **In step 4, the third MAC is R(s2), not A.** A MAC address only has meaning inside one local network (section 16). In building 2, the frame came from the router, so the original sender on that local network is R(s2). A's IP is still in the IP group, so D knows the frame came from A.
-* **Both buildings can use channel 36.** The buildings are far apart and walls weaken the wave, so building 1's waves reach building 2 only as noise. They do not share channel time.
-* **R never learns that A or D is wireless.** Only steps 1 and 4 are in the air, and the access points turn them into ordinary cable frames.
-
----
-
-## 57. Houses in Different Cities
-
-### The Problem
-Your house is one local network: laptops, a switch and an access point. A friend's house in another city is another local network. In section 16, one router joined two buildings because both buildings were cabled to it. Between two houses in different cities there is no cable, and you cannot lay one across a city yourself.
-
-### Who Lays the Cables
-Companies lay cables under streets and between cities, and put routers where the cables meet. Each house gets one cable from the company's nearest router. The house pays the company every month. This company is an **internet provider**. The word "internet" is explained at the end of this section.
-
-### Where the Cable Plugs In
-Into the home box (sections 23 and 55). The box has one socket separate from the others, and the company's cable goes there. Inside the box, that socket belongs to the router part.
-
-* That socket is usually labeled **WAN** (wide area network): the network on the far side of the socket, the company's cables, which cover a large area.
-* The other sockets are labeled **LAN** (local area network): they connect to your own local network.
-
-```text
-laptops ~~~ [access point] -- switch -- (LAN side) router (WAN side) ---- company's router
-             your home local network                       one cable, like R1-R2 in section 17
-```
-
-The home router's routing table:
-
-```text
-192.168.1.x       directly (your home)
-everything else   next router = the company's router
-```
-
-### Why the Router Needs Its Own Socket
-A router needs one socket for each local network it joins. In section 16, R had socket 1 cabled to building 1 and socket 2 cabled to building 2. It reads "to IP" and decides which socket the frame goes out of. With one socket, it would have nothing to choose between.
-
-The home router joins two local networks:
-
-```text
-socket 1 (inside the box, to the switch)   ->  your home local network
-WAN socket                                 ->  the one cable to the company's router
-```
-
-The LAN sockets are not router sockets. They are switch sockets, all in the home local network.
-
-If the company's cable went into a switch socket instead, the company's router would become part of the home local network. The laptops' ARP broadcasts would go out to the company, and frames between the house and the company would never pass through the home router at all. A router only does its job (reading the IP group, picking a side, not forwarding broadcasts) for frames that come in on one of its sockets and go out of another.
-
-### What the Internet Is
-Every house and every office does this. The company's routers are cabled to other companies' routers, across cities and countries. The **internet** is all of these local networks (homes, offices, and the computers that run websites) joined by routers that many companies own. No single company owns all of it.
-
-Nothing new happens to a frame there. It is sections 16 to 18 repeated across many routers: each router reads "to IP", picks a row, writes new MACs, and lowers TTL by 1.
-
----
-
-## 58. Two Houses With the Same Addresses
-
-### The Problem
-S is a computer somewhere else that runs a website.
-
-```text
-house 1:  laptop A 192.168.1.23 -- [home box H1] --\
-                                                    [company router P] -- ... -- S 198.51.100.7
-house 2:  laptop X 192.168.1.23 -- [home box H2] --/
-```
-
-Home boxes come from the factory set up the same way, so a laptop in house 2 can have the same address as A.
-
-1. A sends `hi` to S. The IP group is from `192.168.1.23` to `198.51.100.7`.
-2. Every router reads only "to IP", so the frame reaches S. Nothing has gone wrong yet.
-3. S replies. The IP group is from `198.51.100.7` to `192.168.1.23`.
-4. P would need these rows:
-
-   ```text
-   192.168.1.x   ->  house 1 cable
-   192.168.1.x   ->  house 2 cable
-   ```
-
-   The same prefix points two ways, so P cannot choose. The reply cannot be delivered.
-
-### Why Houses Reuse Addresses
-An IP address is 4 bytes, which is 32 bits, so there are about 4.3 billion possible addresses. The world has more phones, laptops and servers than that, so not every device can have its own.
-
-So three ranges were set aside for use only inside a local network. Any house or office may reuse them, and routers between companies have no rows for them:
-
-```text
-10.0.0.0/8
-172.16.0.0/12
-192.168.0.0/16
-```
-
-Every other address belongs to exactly one machine in the world. Organizations that track who has which range hand ranges out to companies, so no two companies get the same one.
-
-* **Private address**: an address from the three reused ranges. It means something only inside one local network.
-* **Public address**: an address that belongs to one machine in the world, so routers anywhere can have a row that leads to it.
-
-`198.51.100.7` is not in any of the three ranges, so S's address is public.
-
-### What Each House Gets
-The internet provider owns ranges of public addresses. When the home box is connected, it asks over the WAN cable for an address, and the company's router gives it one from those ranges. Sometimes the company gives the address on paper and a person types it in. The address is set on the WAN socket only:
-
-```text
-H1's WAN socket   203.0.113.10
-H2's WAN socket   203.0.113.20
-```
-
-Now P's rows are unique:
-
-```text
-203.0.113.10   ->  house 1 cable
-203.0.113.20   ->  house 2 cable
-```
-
-A frame sent to `203.0.113.10` reaches house 1's box and no other.
-
-Routers in other companies know to send `203.0.113.x` toward this provider because the provider tells them, with messages like "I can reach 203.0.113.x, send it through me" (the automatic messages at the end of section 17). So every frame for the house first reaches the provider's routers, and the last of them, the one cabled to the house, passes it to the box.
-
-### Picking an Address Yourself
-You can type any number into the box, but it will not work. An address only works if routers have rows that lead to your cable. Those rows are in the company's routers, and only the company changes them. If you type `203.0.113.99` and the company never gave it to you, P has no row sending it to your cable, so replies never reach you. If that address belongs to someone else, the replies go to them.
-
-### Addresses Used in These Examples
-The organizations that track address ranges keep three small ranges back and never give them to any company:
-
-```text
-192.0.2.0/24
-198.51.100.0/24
-203.0.113.0/24
-```
-
-They exist for people who write books, manuals and tutorials. If a writer used a real address, readers who copied the example would send frames to a real machine that belongs to someone else. No machine owns these addresses, and routers have no rows for them. The examples here use them for S and the home boxes for the same reason: they look like real public addresses but do not point at anyone's real machine.
-
-### The Next Problem
-A's frame left with "from IP" = `192.168.1.23`, so S still replies to that address, not to `203.0.113.10`. And A, B and C are all inside house 1 behind that one public address.
-
----
-
-## 59. NAT
-
-### Going Out
-A (`192.168.1.23`, port 50001) sends to S (`198.51.100.7`, port 80). When the frame reaches the home box:
-
-1. The box picks an unused port of its own, for example 40001.
-2. It writes a row in a table.
-3. It replaces "from IP" with its public address and "from port" with 40001. Then the router part sends the frame out of the WAN socket as usual (new MACs, TTL lowered by 1).
-
-```text
-before:  from 192.168.1.23 : 50001   to 198.51.100.7 : 80
-after:   from 203.0.113.10 : 40001   to 198.51.100.7 : 80
-```
-
-S only ever sees `203.0.113.10 : 40001`. It never sees `192.168.1.23`.
-
-### Coming Back
-S replies to `203.0.113.10 : 40001`. Routers outside have rows for that address, so the reply reaches the home box. The box reads "to port" = 40001, finds the row, and changes the frame back:
-
-```text
-before:  to 203.0.113.10 : 40001
-after:   to 192.168.1.23 : 50001
-```
-
-Then it sends the frame into the house to A.
-
-### Two Laptops With the Same Port
-B (`192.168.1.24`) opens a conversation with S at the same moment. As in section 7, each kernel picks its own port, and B also picks 50001 by chance. The box gives B a different outside port:
-
-```text
-inside IP : port        outside port    other end
-192.168.1.23 : 50001    40001           198.51.100.7 : 80     (A)
-192.168.1.24 : 50001    40002           198.51.100.7 : 80     (B)
-```
-
-S sees two conversations, `203.0.113.10 : 40001` and `203.0.113.10 : 40002`. The four values differ by port (section 20), so S keeps them apart.
-
-If the box changed only the IP, both replies would come back to `203.0.113.10 : 50001`, and the box could not tell A's reply from B's. The outside port is the only thing that tells them apart, which is why the port changes as well as the IP.
-
-### Name
-Changing addresses and ports at the box is **NAT** (network address translation). It is the one exception to the rule in section 19 that a router never reads the TCP group: NAT reads and changes the ports. The box deletes each row a short time after the conversation ends.
-
-### Why the Two-Building Example Did Not Need It
-NAT is needed only because several devices share one public address, so the box has to use ports to tell them apart. In section 16, every computer had its own address, and the router had rows for all of them, so nothing had to be rewritten. If every laptop in a house had its own public address, NAT would not be needed either.
-
----
-
-## 60. Frames Nobody Inside Asked For
-
-### No Row, Dropped
-A frame arrives at the WAN socket for a port that has no row, for example `203.0.113.10 : 40050`. It does not belong to any conversation started from inside, so the box has no inside address to change it to. The box drops it.
-
-```text
-arrives:  to 203.0.113.10 : 40050
-table:    no row for 40050
-result:   dropped
-```
-
-* Laptops inside can start conversations with anyone outside, because a row is created on the way out and the reply finds it.
-* Nobody outside can start a conversation with a laptop inside. Their first frame, the SYN (section 11), has no row, so it is dropped.
-
-A computer outside cannot reach a program listening on a laptop inside unless the laptop spoke first.
-
-### Port Forwarding
-A runs a program listening on port 7000, and a friend in another city wants to connect to it. The friend's SYN arrives at `203.0.113.10 : 7000`, there is no row, and it is dropped.
-
-The fix is to type a row into the box's settings by hand:
-
-```text
-outside port    inside IP : port
-7000            192.168.1.23 : 7000      (typed by a person, never deleted automatically)
-```
-
-Now the friend connects to `203.0.113.10 : 7000`. The box finds the row, changes "to IP" to `192.168.1.23`, and sends the frame to A. Replies go back out through the same row.
-
-A row typed by hand like this is **port forwarding**. It is the only way a frame that nobody inside asked for gets through the box.
-
-### After a Conversation Closes
-While a row exists, S can send a frame that reaches the laptop, even after the conversation is over. If S sends a frame with exactly the same addresses and ports right after the conversation closes, the box still has the row, so it forwards the frame and it reaches the laptop. Three things limit this:
-
-1. **Only S can use the row.** The row records the other end, `198.51.100.7 : 80`. Most home boxes, including the ones that run Linux, forward a frame through the row only if its "from IP : port" is exactly that. A different computer sending to `203.0.113.10 : 40001` does not match and is dropped. Not every box checks this. Some forward anything that arrives on 40001.
-2. **The row does not last long.** The box sees the FIN frames go through (section 12), so it knows the conversation ended. It deletes the row a short time later, for example about 2 minutes on Linux-based boxes. After that, even S is dropped.
-3. **The laptop's kernel rejects it.** A's kernel looks up the four values (section 20). Port 50001 was a temporary port that A's kernel picked for `connect()`. No program called `listen()` on it, and the conversation is closed. So the kernel answers with RST (section 11), and no program sees the frame.
-
-### Who Can Reach Whom
-A laptop can start a conversation with any machine whose address routers can reach and where a program is listening.
-
-* **A server in a data center**: yes. Servers are set up so that an address reachable from outside leads to them, and a program listens on a known port, such as 80.
-* **A friend's laptop in another city**: only if the friend's box has a port forwarding row for that port. On your side nothing is needed: your box creates a NAT row by itself on the way out.
-* **A friend's laptop in the same house**: no port forwarding needed. Frames between two laptops in one house go laptop -> access point -> switch -> laptop (section 55). They never pass through the router part, so NAT never sees them. You connect directly to the friend's private address, for example `192.168.1.24 : 7000`.
-
-```text
-friend in another city:   you -> your box (NAT row made automatically) -> ... -> friend's box (needs port forwarding) -> friend
-friend in your house:     you -> access point / switch -> friend      (no router, no NAT)
-```
-
-The other direction always works: any computer you start a conversation with can reply, because your box creates the row on the way out.
-
----
-
-## 61. One Laptop in Two Networks
-
-### Two Wireless Chips
-A laptop with two wireless chips can join two access points at once. Each chip has its own MAC, and each network gives the laptop an address on that chip. The laptop is then in two local networks at once, the same position as R in section 16, with one socket in each building. A laptop with a cable plugged in and wireless connected at the same time is the same case.
-
-### Different Ranges: No Conflict
-```text
-chip 1 joined home Wi-Fi      laptop is 192.168.0.23
-chip 2 joined office Wi-Fi    laptop is 192.168.1.40
-```
-
-The laptop's routing table gets one row per network:
-
-```text
-192.168.0.x       directly, out of chip 1
-192.168.1.x       directly, out of chip 2
-everything else   next router 192.168.0.1 out of chip 1, priority 600
-everything else   next router 192.168.1.1 out of chip 2, priority 601
-```
-
-The two "everything else" rows match the same addresses, so each row carries a priority number, and the lower number wins. All outside traffic goes out through chip 1, and chip 2 is used only for 192.168.1.x. This priority number is the **metric**.
-
-### Same Range: Conflict
-If both networks use 192.168.0.x:
-
-```text
-192.168.0.x   directly, out of chip 1
-192.168.0.x   directly, out of chip 2
-```
-
-Two rows match the same prefix. The metric decides, so the kernel always uses one of them. If both networks have a printer at `192.168.0.50`, the laptop can reach only the one on the network the winning row points to. The other is unreachable by address. Both boxes may even be `192.168.0.1`. Nothing breaks completely, but everything addressed in that range goes to only one of the two networks.
-
-### Not a Router by Default
-Being in both networks does not make the laptop pass frames from one network to the other. Linux has that switched off by default.
-
-### How the Metric Is Chosen
-On a Linux desktop, the program that manages connections (NetworkManager on Ubuntu) sets the metric from the type of connection:
-
-```text
-cable       100
-Wi-Fi       600
-VPN          50    (a later topic)
-```
-
-When a cable and Wi-Fi are both connected, the cable wins, because a cable is usually faster and steadier. With two Wi-Fi chips, both start at 600, and NetworkManager gives the second one a slightly higher number, such as 601, so the rows never tie. Which chip gets the lower number depends on the order they connected. The exact rule was not checked.
-
-The number can be set by hand for any connection, in Ubuntu's settings for that network or with `nmcli connection modify <name> ipv4.route-metric 50`. A lower number makes that connection the one used for "everything else".
-
----
-
-## 62. Names Instead of Numbers
-
-### The Problem
-A's program has to put S's address into `connect()`. People remember words, not `198.51.100.7`. The address can also change: if S's owner moves S to another data center, S gets a new address from a different company, and everyone who wrote down the old number now has a wrong one. So people want to type a name like `www.bluepizza.com` and have the computer find the current address.
-
-### A File on Every Computer
-The simplest fix: each computer keeps a text file with one line per name.
-
-```text
-198.51.100.7    www.bluepizza.com
-192.168.1.24    friend-laptop
-```
-
-Before connecting, the program's networking code reads this file, finds the name, and uses the address next to it. On Linux this file still exists, at `/etc/hosts`.
-
-When the whole network was a few hundred computers, in the 1970s and early 80s, it worked exactly like this. One organization kept a single master file, and every computer downloaded a copy regularly.
-
-### Why It Stops Working
-* **Size**: there are hundreds of millions of names. A file every computer downloads would be huge, and almost all of its lines would never be used.
-* **Changes**: names get new addresses all the time. Every computer would need a fresh copy constantly, and an old copy gives a wrong address.
-* **One editor**: every new name or change would have to go through that one organization.
-
----
-
-## 63. Asking a Name Server
-
-### One Computer Answers
-Instead of every computer holding every name, a computer asks for only the one name it needs. Whoever answers is just another computer with an address that can be reached, running a program that answers name questions.
-
-Say one computer, N at `198.51.100.53`, holds the whole name list, and a program on it listens on port 53. Port 53 is agreed in advance for this, the same way 80 is agreed for web servers (section 7). N's address is one of A's settings, the same way the default gateway is.
-
-```text
-question:  [MAC group][IP: A -> 198.51.100.53][UDP: from port 50123 to port 53]  "what is the address of www.bluepizza.com?"
-answer:    [MAC group][IP: 198.51.100.53 -> A][UDP: from port 53 to port 50123]  "www.bluepizza.com is 198.51.100.7"
-```
-
-Then A's program calls `connect(("198.51.100.7", 80))` as before.
-
-A computer that answers name questions is a **name server**.
-
-### Why UDP and Not TCP
-The question and the answer each fit in one small frame. TCP would need the three-frame handshake (section 11) before the question and FIN frames after it, all to carry two small frames. With UDP (section 19), A sends the question and waits. If no answer comes within a short time, for example 1 second, A asks again.
-
-### Why One Name Server Is Not Enough
-* **Load**: every computer in the world asks it, every time it opens a conversation. That is billions of questions a day for one machine.
-* **One editor**: whoever owns `www.bluepizza.com` has to ask the one organization that runs N to change its line.
-* **One point of failure**: if N is switched off or its cable breaks, no name works anywhere.
-
-These are the same problems the single file had, moved onto one computer.
-
----
-
-## 64. Splitting the Names
-
-### Read From Right to Left
-The list is split by the parts of the name. The parts are separated by dots and read from right to left. Each level of name servers knows only who handles the next part.
-
-### The Setup
-* A pizza shop owns the name `bluepizza.com`.
-* Its website runs on a computer at `198.51.100.7`, named `www.bluepizza.com`.
-* The shop does not run its own name server. It rents one from a company called DNSHost. That server is `ns1.dnshost.net`, at `203.0.113.53`.
-* One of the com servers is at `192.0.2.10`. "com-server-1" below is a made-up label for it.
-
-### What Each Server Holds
-```text
-root server:
-  com                  ->  ask com-server-1        (address 192.0.2.10)
-
-com server (192.0.2.10):
-  bluepizza.com        ->  ask ns1.dnshost.net     (address 203.0.113.53)
-
-ns1.dnshost.net (203.0.113.53):
-  www.bluepizza.com    ->  198.51.100.7
-```
-
-* **Root servers** know who handles each last part: `com`, `org`, `in`, and so on.
-* **com servers** know who handles each name ending in `.com`.
-* **bluepizza.com's name server** knows the actual addresses of the names under `bluepizza.com`.
-
-### Looking Up `www.bluepizza.com`
-Each step is one UDP question and answer to port 53:
-
-1. Ask a root server about `www.bluepizza.com`. Answer: "I do not have it. For `com`, ask `192.0.2.10`."
-2. Ask `192.0.2.10`. Answer: "I do not have it. For `bluepizza.com`, ask `ns1.dnshost.net` at `203.0.113.53`."
-3. Ask `203.0.113.53`. Answer: "`www.bluepizza.com` is `198.51.100.7`."
-
-### How the Root Servers Are Found
-There are 13 root server addresses. They are a fixed list built into name server programs. The list almost never changes, so a copy of it is enough. It is the old file idea again, but for 13 lines instead of millions.
-
-### What This Fixes
-* **Load**: root servers answer only about the last part, com servers only about names ending in `.com`. The actual lines for `www.bluepizza.com` sit only on bluepizza.com's name server.
-* **One editor**: the pizza shop edits its own lines on `ns1.dnshost.net` directly. Nobody else is involved. When the shop first buys the name `bluepizza.com` from a company that sells names, that company adds the `bluepizza.com -> ask ns1.dnshost.net` line to the com servers.
-* **One point of failure**: each level has several servers, so one being off does not stop names from working.
-
-### Names
-A name together with everything under it, like `bluepizza.com`, is a **domain**. This whole split system of name servers is **DNS** (Domain Name System).
-
----
-
-## 65. The Resolver and Its Memory
-
-### The Problem
-Every new connection would need three questions before the first SYN, and every computer in the world would keep asking the root and com servers the same things.
-
-### One Computer Does the Asking
-The laptop does not hold the 13 root addresses, and it does not ask three times. The laptop has one name server address in its settings, the same way it has the default gateway. That name server might be:
-
-* the home box, which passes the question on to the next one
-* a name server run by the internet provider
-* a large shared one, such as Google's at `8.8.8.8` or Cloudflare's at `1.1.1.1`
-
-The laptop sends it one question, "what is the address of `www.bluepizza.com`?", and waits for one answer. That name server holds the list of 13 root addresses, asks root, then com, then bluepizza.com's name server, and sends the final answer back to the laptop.
-
-A name server that does this asking for other computers is a **resolver**.
-
-### The Resolver Remembers Answers
-The resolver keeps every answer it receives in memory, not only the final one:
-
-```text
-com                  ->  ask 192.0.2.10
-bluepizza.com        ->  ask 203.0.113.53
-www.bluepizza.com    ->  198.51.100.7
-```
-
-```text
-later question                         what the resolver does                       questions sent
-another laptop: www.bluepizza.com      answers from memory                          0
-someone: mail.bluepizza.com            skips root and com, asks 203.0.113.53        1
-someone: other.com                     skips root, asks the com server              2
-```
-
-A resolver used by thousands of laptops rarely asks the root servers, because the `com` line is almost always already in memory. The laptop and the browser also keep their own short-term copies, so repeated connections often send no question at all.
-
-### How Long It Remembers
-Each answer carries a number of seconds set by the owner of the name, for example 300. The resolver keeps the answer that long, then deletes it and asks again next time. This number is also called **TTL** (time to live). It is a different field from the TTL in the IP group (section 18), which counts router hops. Only the name is the same.
-
-The owner picks it:
-
-* **Long TTL, for example 1 day**: few questions, but after the owner changes the address, resolvers keep giving the old one until their copy expires.
-* **Short TTL, for example 60 seconds**: an address change reaches everyone within a minute, but resolvers ask more often.
-
-### Where the Resolver Is Set
-By default nothing is set by hand. When the laptop joins the home network, the box gives it its settings automatically: its address, the default gateway, and a resolver address. Usually the resolver address is the box itself, for example `192.168.1.254`, and the box passes questions on to the internet provider's resolver.
-
-To change it, there are two places:
-
-```text
-where                                       what is set                                     affects
-laptop (Ubuntu: Settings -> Network ->      which resolver this laptop asks                 only this laptop
-IPv4 -> DNS, turn off Automatic,
-type for example 1.1.1.1)
-home box (its settings page)                which resolver the box passes questions to,     every device using the
-                                            or which resolver address it gives devices      automatic setting
-```
-
-If both are set, the laptop's own setting wins for that laptop.
-
-`192.168.1.254` is only the number these notes use (section 16). Real boxes use whatever their maker set at the factory, commonly `192.168.0.1`, `192.168.1.1`, `192.168.1.254` or `10.0.0.1`, and it can be changed in the box's settings. The only rule is that the box's address must be inside its own home network's range: a home network of 192.168.0.x needs a box address like `192.168.0.1`, not one from 192.168.1.x.
-
----
-
-## 66. Kinds of Records
-
-### Record
-One line in a name server's list is a **record**. Each record has four parts: name, type, value and TTL. Each type says what the value means.
-
-### Type A (Address)
-The value is an IP address. This is the line used in every step so far:
-
-```text
-name                 type     value            TTL (seconds)
-www.bluepizza.com    A        198.51.100.7     300
-```
-
-### Type NS (Name Server)
-The value is the name of the name server to ask for a domain. The "ask this server" lines on the root and com servers are NS records.
-
-On the com servers:
-
-```text
-name             type    value                TTL
-bluepizza.com    NS      ns1.dnshost.net      86400
-bluepizza.com    NS      ns2.dnshost.net      86400
-```
-
-This means: "for any name ending in `bluepizza.com`, ask `ns1.dnshost.net` or `ns2.dnshost.net`". Two lines are there so that if one server is off, the other works.
-
-The value is a name, but the resolver needs an IP address to send its question to. So the com servers also send the name server's address in the same answer:
-
-```text
-ns1.dnshost.net    A    203.0.113.53
-```
-
-The root servers do the same one level up: an NS record for `com`, plus the address of each com server.
-
-### Type CNAME (Canonical Name)
-"Canonical name" means "the real name". The value is another name, not an address. It says: "this name is another name for that one, look that one up instead".
-
-Say the pizza shop does not run its website computer itself. It rents space from a hosting company, `hostco.net`, which moves its customers between machines and changes their addresses. With an A record, the shop would have to edit its record every time hostco changed the address. Instead the shop writes:
-
-```text
-name                 type     value                     TTL
-www.bluepizza.com    CNAME    bluepizza.hostco.net      3600
-```
-
-hostco keeps the A record for `bluepizza.hostco.net` up to date on its own name servers. The shop never edits anything, and its name always leads to the current address.
-
-The resolver follows it:
-
-1. A laptop asks for `www.bluepizza.com`.
-2. The resolver gets `CNAME bluepizza.hostco.net`. That is not an address yet.
-3. It looks up `bluepizza.hostco.net` and gets an A record with the address.
-4. It answers the laptop with that address, and keeps both records in memory, each for its own TTL.
-
-### The Three Types Side by Side
-```text
-type     value                  meaning
-A        an IP address          this is the address
-CNAME    another name           look up that name instead
-NS       a name server's name   ask that server about this domain
-```
-
-### How Many Steps
-Each step is one handoff, where one name server says "ask this other server". Three steps is the common case for a name like `www.bluepizza.com` when nothing is in memory, but the count can differ:
-
-* **More handoffs, more steps.** A university might give its computer science department its own name server for names ending in `cs.someuni.edu`. Looking up `www.cs.someuni.edu` then takes four steps: root, edu servers, the university's server, the department's server.
-* **A CNAME starts another lookup.** The resolver has to look up the new name from the start, which can add up to three more steps, fewer if parts of it are in memory.
-* **A missing name server address.** If an NS answer gives only a server's name without its address, the resolver first has to look up that name, which adds more steps.
-
-### The Next Problem
-A's program now has `198.51.100.7` and connects to port 80. The handshake finishes, and a connection is open. What bytes should A's program send so that the program on S knows which page is wanted, and what bytes come back?
-
----
-
-## 67. What a Protocol Is
-
-### Rules Already Used
-Before that question can be answered, the rules under the bytes have to be built properly, starting from what a protocol is. The TCP and UDP parts earlier in these notes were loose, so this part builds them again from the start: protocol, ports, lost frames, UDP, then TCP. Several protocols have already been used without the name.
-
-When A sends a wireless frame to B, both chips agreed in advance on:
-
-* **The order of the fields**: kind, duration, receiver MAC, transmitter MAC, third MAC, ..., CRC.
-* **The size of each field**: a MAC is 6 bytes.
-* **What each side does**: wait for 34 microseconds of quiet plus a random wait before sending. The receiver acks after 16 microseconds.
-
-If B's chip expected the receiver MAC 2 bytes later than where A put it, B would read the wrong 6 bytes as the address and drop every frame. The bytes mean something only because both sides follow the same written rules.
-
-### The Definition
-A **protocol** is a written set of rules: which bytes go where, what each one means, and what each side does in reply.
-
-* The wireless sending rules are one protocol.
-* ARP is another: the question "who has 192.168.1.254?" and its answer have a fixed layout.
-* The IP group is another: from IP, to IP and TTL, each in a fixed place.
-
-### The Next Problem
-The IP group gets a frame to the right computer. That computer runs many programs at once, for example a browser, a music player and a chat program. Which program should get the bytes?
-
----
-
-## 68. Which Program Gets the Bytes
-
-### Why Not the Process ID
-The kernel receives every frame first. The frame needs a number that tells the kernel which program the bytes are for.
-
-The process ID cannot be that number. The kernel gives a program a new process ID every time it starts, so it changes on every run. The sending computer also cannot see the receiving computer's process IDs.
-
-### Ports
-A fixed number is agreed instead. When a program starts, it asks the kernel: "give me every frame that arrives for number 7000". The kernel writes that in a table. This number is a **port**. It is 2 bytes, so it can be 0 to 65535.
-
-Laptop B (`192.168.1.24`) runs two programs. B's kernel has this table:
-
-```text
-port    program
-7000    chat program
-6600    music program
-```
-
-A's chat program sends "hi" to B's chat program. A's kernel adds a small group of bytes after the IP group:
-
-```text
-[MAC group][IP group: to 192.168.1.24][from port 50001, to port 7000]["hi"]
-```
-
-1. The frame reaches B, as in section 16.
-2. B's kernel reads "to port" = 7000, finds the chat program in its table, and gives it "hi".
-3. If no row has that port, no program asked for it, so no program gets the bytes. What the kernel sends back in that case is in sections 70 (UDP) and 74 (TCP).
-
-### Why the Frame Also Carries "From Port"
-B's chat program has to reply to the right program on A. A's kernel gave A's chat program port 50001 when it started sending. The program did not choose that number. The kernel picked an unused one. The reply goes back as:
-
-```text
-[IP group: to A][from port 7000, to port 50001]["hello"]
-```
-
-### How A Knows 7000
-A has to know B's port before sending anything, so programs agree on fixed numbers in advance. Web servers use 80, and name servers use 53 (section 63). The sender's own port can be any unused number, because the reply carries it back.
-
-### The Next Problem
-Frames can be lost. A sends "hi", and nothing arrives at B. With only these ports, does anyone notice?
-
----
-
-## 69. Where Frames Get Dropped
-
-### Three Places
-**1. In the air, after too many tries.** A sends a frame to the access point. If it collides with another frame or is damaged by noise, the access point's CRC check fails, so it sends no ack. A's chip waits and sends again (section 39). It does not try forever. After a fixed number of tries, often about 7 (not checked for a specific chip), A's chip gives up and throws the frame away. This happens when the air is very busy or the signal is weak, for example two rooms away from the access point.
-
-**2. On a cable, damaged bytes.** A cable has no ack at all. The receiving chip checks the CRC. If bits were flipped by electrical noise or a bad plug, the CRC does not match, and it drops the frame without telling anyone (section 4). On a good cable this is rare.
-
-**3. In a router or switch, no room to wait.** This is the most common cause, on cable and in the air.
-
-```text
-socket 1 in:  1 Gbit/s ---\
-                           router ---> socket 3 out: 1 Gbit/s
-socket 2 in:  1 Gbit/s ---/
-```
-
-Frames come in twice as fast as they can go out. The router keeps the extra frames in memory, in a line where each frame waits its turn. That memory is limited. When the line is full, each new frame that arrives is dropped. An access point does the same when frames from the cable come in faster than it can send them through the air.
-
-### Why the Wireless Ack Does Not Help
-```text
-A ~~air~~ access point -- switch -- router -- ... -- B
-  ack here               no acks on any of these
-```
-
-A's chip gets its ack as soon as the access point receives the frame. If a router farther along drops it because its line is full, A's chip has already moved on, and that router tells nobody.
-
-### The Program Is Not Told Either
-When A's program calls `send("hi")`, the kernel copies the bytes into its own memory and `send` returns. It never waits for the frame to reach B.
-
-```text
-program: send("hi")  -> returns                (time 0)
-kernel:  builds the frame, gives it to the chip
-chip:    try 1 ... try 7, no ack, gives up     (later)
-         adds 1 to a counter of failed frames in the driver; the program is never told
-```
-
-Usually the copy is immediate, so the program goes to its next line right away. The exception: the kernel keeps a limited amount of memory for each program's outgoing bytes. If that memory is full, because the program sends faster than the chip can put frames out, `send` waits until there is room. Even then it is waiting for room in the kernel's memory, not for B.
-
-### The Drop Comes First
-"The sender slows down when acks stop coming" is a TCP rule (section 73). It does not prevent drops. It reacts to them:
-
-```text
-1. a router's line is full
-2. the router drops a frame             <- the drop happens first
-3. that frame's ack never comes back
-4. the sender's kernel sees the missing ack and slows down
-```
-
-The router sends no "slow down" message. It only drops frames, so the drop is the signal. Many computers send through the same router, and none of them knows about the others, so the line can fill up before any of them slows down. UDP has nothing like this rule: the kernel sends as fast as the program gives it bytes.
-
----
-
-## 70. UDP
-
-### Nobody Notices the Loss
-With only ports, a lost frame stays lost, and nobody finds out:
-
-* The hardware ack covers only one trip through the air.
-* The router that drops the frame tells nobody.
-* B cannot miss a frame it never heard about.
-
-So A's program believes "hi" was sent, and B's program never gets it.
-
-### The Rules
-The small group from section 68 is a real protocol with exactly this behaviour. Its group is always 8 bytes and sits between the IP group and the data:
-
-```text
-[MAC group][IP group, protocol 17][ UDP group, 8 bytes ]["hi"][CRC]
-                                    from port   2 bytes
-                                    to port     2 bytes
-                                    length      2 bytes   (this group plus the data, in bytes)
-                                    checksum    2 bytes   (a number computed from the bytes, like the CRC)
-```
-
-The sender's kernel:
-
-1. Writes the program's port in "from port" and the destination port in "to port".
-2. Writes the length of the UDP group plus the data. For "hi": 8 + 2 = 10.
-3. Computes the checksum from the bytes and writes it.
-
-The receiver's kernel:
-
-1. Computes the checksum again. If it differs, some bytes were damaged, so it drops the frame.
-2. Reads "to port" and finds the program that asked for that port.
-3. Gives the data to that program. If no program asked for that port, it drops the frame and sends back an ICMP "port unreachable" message (section 78). Linux limits how many of these it sends per second.
-
-That is the whole protocol. Only the two kernels at the ends read the UDP group. Routers and access points read only the MAC and IP groups and pass the UDP group along unchanged. The rules do not include waiting for a reply, resending, or numbering frames.
-
-A program picks UDP when it starts. It tells the kernel "I will send with UDP", and from then on the kernel adds this 8-byte group to everything that program sends.
-
-**UDP** = User Datagram Protocol. A **datagram** is one piece of data sent in one frame, on its own, unconnected to any other.
-
-### The Bytes for "hi"
-Written in hex (base 16, two hex digits per byte):
-
-```text
-field        value     bytes on the wire
-from port    50001     C3 51
-to port      7000      1B 58
-length       10        00 0A        <- 10 in hex is 0A
-checksum     computed  for example 4F 2E
-data         "hi"      68 69        <- 'h' is 68, 'i' is 69
-```
-
-Counting them: 2 + 2 + 2 + 2 + 2 = 10 bytes. The length counts the UDP group itself as well as the data.
-
-### Two Bytes, One Number
-`C3 51` is one number, not two. The first byte counts how many 256s there are, and the second counts the ones:
-
-```text
-C3 51  =  195 × 256 +  81  =  50001
-1B 58  =   27 × 256 +  88  =  7000
-00 0A  =    0 × 256 +  10  =  10
-FF FF  =  255 × 256 + 255  =  65535   <- the largest; this is why ports stop at 65535
-```
-
-It works the same way as decimal digits. In "42", the 4 counts tens and the 2 counts ones. Each byte holds 0 to 255, so the first byte counts 256s instead of tens.
-
-The byte that counts 256s goes first. Every network protocol uses this order, so it is called **network byte order**. A laptop's processor stores numbers in memory with the ones byte first, so the kernel swaps the two bytes when it writes a port into a frame.
-
-### Why the Length Field
-A cable frame has a minimum size of 64 bytes. A frame carrying only "hi" is shorter, so the sender's chip adds zero bytes before the CRC. B's kernel then receives "hi" followed by zeros. The length tells it the data is 10 − 8 = 2 bytes, so the zeros are ignored.
-
-The IP group has its own length field, which does the same job for the whole IP part, so the UDP length is partly a second copy. It is kept because UDP's rules were written so that the UDP group can be checked on its own.
-
-### When UDP Is Enough
-* **Name lookups**: the question fits in one frame. If no answer comes within about 1 second, the program asks again. The program does the noticing itself.
-* **Voice calls**: each frame carries about 20 milliseconds of sound. If one is lost, resending it would make it arrive too late to play. Skipping it causes a short click, which is better.
-
-### The Next Problem
-A sends a 1 MB photo to B. One frame carries at most about 1500 bytes of data, so the photo needs about 700 frames. With UDP, some can be lost and nobody notices. How would B know which pieces are missing, and how would A know to send them again?
-
----
-
-## 71. Numbering the Bytes
-
-To keep the numbers simple, say each frame carries 1000 bytes of the photo (the real figure is 1460, section 77). A 1,000,000-byte photo then needs 1000 frames.
-
-### Rule 1: A Writes a Number in Every Frame
-The number is the position of the frame's first byte within the photo:
-
-```text
-frame 1:  number 0       bytes 0 to 999
-frame 2:  number 1000    bytes 1000 to 1999
-frame 3:  number 2000    bytes 2000 to 2999
-...
-```
-
-The position tells B exactly where those bytes go, so B can see which positions are still empty. This number is the **sequence number**.
-
-### Rule 2: B Replies With the Next Position It Wants
-"Ack 1000" means "I have every byte before 1000, that is 0 to 999. Send 1000 next." This number is the **ack number**.
-
-### Rule 3: A Keeps a Copy Until It Is Acked
-A keeps a copy of every frame until an ack covers it. If no ack covers that frame within a set time, for example 200 milliseconds, A sends the copy again.
-
-### One Frame Lost
-```text
-A sends          B has                  B replies
-0      ->        0-999                  ack 1000
-1000   -> lost
-2000   ->        0-999, 2000-2999       ack 1000   (still missing 1000-1999)
-... 200 ms pass, no ack covers frame 1000 ...
-1000   ->        0-2999                 ack 3000
-```
-
-B holds 2000–2999 in memory and does not give it to its program until 1000–1999 arrives. So the program always gets the bytes in order, with no gaps.
-
-### How This Differs From the Hardware Ack
-This ack is sent by B's kernel, and it travels back across every router to A's kernel. A drop anywhere along the way means no ack, so A finds out and resends. The hardware ack only covers one trip through the air.
-
-These are the first rules of **TCP** (Transmission Control Protocol). TCP has its own group in the frame, in the same place as the UDP group.
-
-### The Next Problem
-A is in one city and B in another. A frame takes 25 ms to get there, and the ack takes 25 ms to come back. If A waits for each ack before sending the next frame, how long do 1000 frames take?
-
----
-
-## 72. Sending Without Waiting
-
-### The Cost of Waiting
-Every frame costs one full trip there and back: 25 + 25 = 50 ms. 1000 frames × 50 ms = 50 seconds for a 1 MB photo. Most of that time, the cable sits idle while A waits.
-
-### Rule 4: Many Frames Before Any Ack
-Say A may have at most 10 unacked frames out at once:
-
-```text
-time 0 ms:   A sends 0, 1000, 2000 ... 9000         (10 frames, then stops)
-time 50 ms:  ack 1000 arrives  -> A sends 10000      (10 out again)
-             ack 2000 arrives  -> A sends 11000
-             ...
-```
-
-Each ack frees one place, and A fills it right away. Each 50 ms trip now moves 10 frames instead of 1: 100 trips × 50 ms = 5 seconds. With 100 frames allowed, 0.5 seconds. Rule 3 still applies: A keeps a copy of every unacked frame and resends any whose ack does not come in time.
-
-### Rule 5: Every Ack Says How Much Room Is Left
-B's kernel holds received bytes until B's program reads them. If B's program reads slowly, that memory fills up. If A keeps sending, B has nowhere to put the bytes and has to drop them. So every ack from B also says how much room B has left:
-
-```text
-ack 5000, room 8000 bytes   -> A may have at most 8000 unacked bytes out
-ack 6000, room 0 bytes      -> A stops sending until B reports room again
-```
-
-The number of unacked bytes A is allowed to have out is the **window**. The "room" number B sends in every ack is the **window field** in the TCP group.
-
-### The Next Problem
-B has plenty of room and says "room 1,000,000 bytes". A sends 1000 frames at once. But on the way there is a router whose line holds only 200 frames (section 69). B's room number says nothing about that router. How can A find out how much the path between them can take?
-
----
-
-## 73. What the Path Can Take
-
-### A Tests the Path
-A cannot ask the router. Routers do not answer questions about their lines. The only thing A can see is whether acks come back. So A starts small, sends more each time everything is acked, and backs off when something is lost.
-
-### Rule 6: A Keeps a Second Limit of Its Own
-A sends no more than whichever is smaller: its own limit, or B's room.
-
-```text
-start:                  10 frames     (Linux starts at 10)
-all acked in one trip:  double it
-a frame was lost:       cut it in half, then add 1 frame per trip
-```
-
-With the router line from before, which holds about 200 frames:
-
-```text
-trip    A's limit    what happens
-1       10           all acked
-2       20           all acked
-3       40           all acked
-4       80           all acked
-5       160          all acked
-6       320          router line overflows, some frames dropped
-7       160          cut in half, resend the lost ones
-8       161          +1
-9       162          +1
-...                  slowly rises until the line overflows again, then halves again
-```
-
-So A's limit stays close to what the path can take. When the path is busy, it goes down. When the path is quiet, it goes back up.
-
-### Many Senders
-Ten computers might send through the same router. Each one sees its own drops and lowers its own limit. None of them knows about the others, but together they bring the line back under 200.
-
-### Names
-A router line that is full, so frames get dropped, is **congestion**. A's own limit is the **congestion window**.
-
-Linux uses a variant called CUBIC. It cuts to about 70% instead of half, and grows back faster than +1 per trip. Its formula is not covered here.
-
-### The Next Problem
-Until now, A just started sending frame 0. But B runs many programs and many conversations at once. How does B's kernel know that a new conversation is starting, and where its numbers begin?
-
----
-
-## 74. Starting a Connection
-
-### What B Needs First
-Before any data, B's kernel has to set aside memory for the new conversation: the next byte it expects, its room, and space to hold frames that arrive out of order. It also has to know where A's numbers begin.
-
-### Why Not Always Start at 0
-Say A and B had a conversation a minute ago with the same ports. A frame from it could still be sitting in a router line and arrive late. If the new conversation also started at 0, B would take those old bytes as new ones. So each side picks a random starting number. The sequence field is 4 bytes, so the number can be 0 to about 4.3 billion, and an old frame almost never fits the new range.
-
-### Why Both Sides Pick One
-Data goes both ways. B will reply on the same conversation, so B's bytes need their own numbers, and A has to ack them.
-
-### Rule 7: Three Frames Before Any Data
-The TCP group has single-bit fields called flags (section 76). **SYN** (synchronize) means "this is my starting number". **ACK** means "read the ack number in this frame".
-
-```text
-1. A -> B:  SYN,       seq 4000                "my numbers start at 4000"
-2. B -> A:  SYN + ACK, seq 9000, ack 4001      "got yours; mine start at 9000"
-3. A -> B:  ACK,       ack 9001                "got yours"
-```
-
-Frame 3 is needed because B has to know that A received B's starting number. Each frame also carries its sender's room (rule 5). This exchange is the **handshake**.
-
-### Which Things Take a Number
-Each side keeps a counter. The seq field in each frame shows the counter's value at the moment the frame is sent. It is a counter, not an index from 0: each thing that takes a number gets the next one.
-
-```text
-frame   what A sends     seq field shows   counter after
-1       SYN              4000              4001   (SYN takes 1 number)
-3       plain ACK        4001              4001   (ACK takes no number)
-4       "hi"             4001              4003   (h = 4001, i = 4002)
-```
-
-The rule: a number is given only to things that must be acked and resent if lost. Only three things are like that:
-
-* **Data bytes**: one number each.
-* **SYN**: without it there is no connection, so it takes a number for the other side to ack.
-* **FIN** (section 75): the same reason.
-
-A plain ACK is never acked itself. If acks needed acks, the ack of the ack would need an ack, forever. If a plain ACK is lost, the next ACK carries a newer number that covers everything before it.
-
-Section 71 counted the photo from 0 to keep it simple. With the random start, photo byte 0 is actually number 4001, and photo byte k is 4001 + k.
-
-### What B's Kernel Checks on the SYN
-Some program on B must already have told the kernel "accept new conversations on port 7000". If no program did, B's kernel replies with a frame carrying the **RST** (reset) flag, meaning "nothing here". UDP answers the same case with ICMP "port unreachable".
-
-### Four Values
-After the handshake, B's kernel keeps the conversation under four values:
-
-```text
-A's IP : A's port      B's IP : B's port
-192.168.1.23 : 50001   192.168.1.24 : 7000    -> next byte expected, room, held frames
-192.168.1.25 : 50001   192.168.1.24 : 7000    -> a different conversation
-```
-
-Two senders can use the same port, as long as at least one of the four values differs. A conversation set up like this is a **connection**.
-
-### The Next Problem
-A has sent the whole photo, and every byte has been acked. B's kernel is still holding memory for this connection. How do both sides agree that it is over, so they can free it?
-
----
-
-## 75. Ending a Connection
-
-### Each Direction Ends Separately
-When A is done sending, B may still have bytes to send back. So each side ends its own direction.
-
-### Rule 8: FIN
-A frame with the **FIN** (finish) flag means "I have no more bytes to send". Like SYN, the FIN takes one number, so it is acked and resent exactly like data.
-
-A sent the 1,000,000-byte photo as bytes 4001 to 1,004,000. B sent back "ok", as bytes 9001 to 9002.
-
-```text
-1. A -> B:  FIN, seq 1004001      A's program called close(); "I'm done sending"
-2. B -> A:  ACK 1004002           "got your FIN"
-            ... B could still send bytes here ...
-3. B -> A:  FIN, seq 9003         B's program called close(); "I'm done too"
-4. A -> B:  ACK 9004              "got your FIN"
-```
-
-If B has nothing more to send, B's kernel often combines frames 2 and 3 into one frame (FIN + ACK), so the close takes three frames.
-
-### How B's Program Learns That A Is Done
-B's program gets the bytes by asking its kernel over and over, in a loop:
-
-```text
-loop:
-    data = read()      # whatever bytes have arrived
-    if data is empty:  # 0 bytes
-        stop
-    save data
-```
-
-Each `read()` returns the bytes that have arrived so far. If nothing has arrived yet, it waits until something does. So `read()` normally never returns 0 bytes: it either returns some bytes or it waits.
-
-After the FIN arrives and B's program has read every byte before it, the kernel knows no more bytes will ever come. So the next `read()` returns 0 bytes immediately. The program never sees the FIN frame itself. That empty result is the only way B's program learns that A is done.
-
-### TIME_WAIT
-Frame 4 can be lost. Then B, which gets no ack for its FIN, sends the FIN again (rule 3). If A had already deleted the connection, it would not recognize that FIN. So the side that sent the first FIN keeps the four values for a while after frame 4: 60 seconds on Linux. During that time, late frames from this connection arrive while the four values are still taken, so they cannot be mistaken for part of a new connection. This waiting state is **TIME_WAIT**.
-
-### The Faster Ending: RST
-```text
-normal:  FIN -> ACK -> FIN -> ACK, then 60 s wait
-RST:     one frame, no ack, no wait
-```
-
-When a kernel sends or receives RST, it deletes the connection at once. Any bytes still in its memory, either not yet sent or not yet read by the program, are thrown away. The program on the other side gets an error ("connection reset") instead of the empty read.
-
-When it is sent:
-
-* **A frame arrives for a connection that does not exist**, for example the late frame from S in section 60.
-* **A program closes the connection while bytes it has not read are still in its kernel.** Linux then sends RST instead of FIN, so the other side knows not everything was taken.
-
-A program that exits abruptly does not always cause RST. When a program exits, the kernel closes its connections for it, and if there are no unread bytes, it sends a normal FIN.
-
----
-
-## 76. The TCP Group
-
-### The Rules of TCP
-```text
-rule    what it says                                                       what it fixes
-ports   "to port" picks the program; "from port" is where replies go        which program (same as UDP)
-1       every byte has a number; seq = the number of the frame's first byte which pieces are missing
-2       the receiver acks the next number it wants; it holds out-of-order   order, no gaps
-        bytes and gives its program only bytes in order
-3       keep a copy until acked; resend if no ack comes in time             lost frames
-4       many unacked frames may be out at once                              waiting on every ack
-5       every frame carries how much more its sender has room for           the receiver's memory
-6       congestion window: start at 10, double while all acked, cut on      router lines
-        loss, grow slowly; send no more than the smaller of this and room
-7       SYN, SYN + ACK, ACK, with a random start on each side;              starting
-        RST if no program accepts that port
-8       FIN for each direction, acked; the first-FIN side waits 60 s;       ending
-        RST ends at once
-check   checksum; if it does not match, the frame is dropped, so no ack     damaged bytes
-        comes and rule 3 resends it
-```
-
-### The Layout
-It sits where the UDP group was: after the IP group, before the data. It is at least 20 bytes. Each row below is 4 bytes:
+It sits where the UDP group was, and is at least 20 bytes:
 
 ```text
 byte    0          1          2          3
@@ -2887,30 +561,23 @@ byte    0          1          2          3
       +-------------------------------------------+
 ```
 
-### The Fields
 ```text
-field            size       what it holds                                                     rule
-from port        2 bytes    sender's port                                                     ports
-to port          2 bytes    receiver's port                                                   ports
-sequence number  4 bytes    the number of this frame's first data byte; on a SYN or FIN,      1, 7, 8
-                            the number that the SYN or FIN itself takes
-ack number       4 bytes    the next number expected from the other side                      2
-len              4 bits     length of the TCP group itself, in 4-byte units                   -
-rsv              4 bits     reserved, always 0                                                -
-flags            8 bits     eight yes/no bits                                                 7, 8
-window           2 bytes    room: how many more bytes the sender of this frame can accept     5
-checksum         2 bytes    damage check over the TCP group, the data, and the from and to IP check
-urgent pointer   2 bytes    almost never used, 0                                              -
-options          0-40 bytes extra settings, mostly sent in SYN frames                         -
+field            size       what it holds                                                       rule
+from/to port     2+2 bytes  sender's and receiver's port                                        ports
+sequence number  4 bytes    number of this frame's first data byte, or of the SYN/FIN itself    1, 7, 8
+ack number       4 bytes    the next number expected from the other side                        2
+len              4 bits     length of the TCP group itself, in 4-byte units                     -
+rsv              4 bits     reserved, 0                                                         -
+flags            8 bits     eight yes/no bits                                                   7, 8
+window           2 bytes    room: how many more bytes this frame's sender can accept           5
+checksum         2 bytes    damage check over the TCP group, the data, and both IPs             check
+urgent pointer   2 bytes    almost never used, 0                                                -
+options          0-40 bytes extra settings, mostly in SYN frames                                -
 ```
 
-### len
-It counts only the TCP group, not the data. 5 means 5 × 4 = 20 bytes, with no options. 6 means 24 bytes, for example 20 plus one 4-byte option. 15 is the maximum, which means 60 bytes. Options make the group's size vary, so the receiver needs len to find where the data starts.
+**len** counts only the TCP group: 5 means 20 bytes, 6 means 24 (one 4-byte option), 15 the maximum, 60. Options vary in size, so the receiver needs len to find the data. TCP has no data length field: the receiver computes it from the IP group's total length minus both groups. UDP is the reverse, a fixed 8-byte group with a length that covers group plus data.
 
-TCP has no field for the data's length. The receiver works it out from the IP group, which records the length of everything after the MAC group: IP total length − IP group − TCP group. UDP is the other way around. Its group is always 8 bytes, so it needs no group length, and its length field counts the group plus the data.
-
-### Flags
-A flag is one bit: 1 means yes, 0 means no. It is not text. The flags field is 1 byte, which is 8 bits, so it holds 8 yes/no answers, one per bit:
+**Flags** are 8 bits in 1 byte, one yes/no answer each:
 
 ```text
 bit:      CWR ECE URG ACK PSH RST SYN FIN
@@ -2918,444 +585,635 @@ SYN:       0   0   0   0   0   0   1   0      = 02
 SYN+ACK:   0   0   0   1   0   0   1   0      = 12
 ```
 
-* **SYN**: "my numbers start here" (rule 7).
-* **ACK**: read the ack number. Set on every frame after the first SYN.
-* **FIN**: "I have no more bytes to send" (rule 8).
-* **RST**: "end this connection now" or "nothing here".
-* **PSH** (push): give the data to the program now. Linux sets it on the last frame of each send call.
-* **URG**: the urgent pointer is valid. Almost never used.
-* **ECE, CWR**: used when a router marks a frame to signal congestion instead of dropping it. This is the one exception to "routers only drop". It needs both ends and the routers to support it, and Linux does not ask for it on its own outgoing connections.
+SYN, FIN and RST are from sections 25 and 26. **ACK** is set on every frame after the first SYN. The ack number's 4 bytes are always present, but in the first SYN there is nothing to ack, so they are 0 and the ACK bit 0 says "ignore them". **PSH** (push) means "give the data to the program now", and Linux sets it on the last frame of each send call. **URG** marks the urgent pointer valid and is almost never used. **ECE** and **CWR** are for routers that mark a frame to signal congestion instead of dropping it, the one exception to "routers only drop". It needs both ends and the routers to support it, and Linux does not ask for it on its own outgoing connections.
 
-### "Read Only If ACK Is Set"
-The 4 bytes for the ack number are in every TCP group. In A's very first SYN, A has received nothing from B, so there is nothing to ack. Those 4 bytes are 0, and the ACK bit is 0, which tells B "ignore these 4 bytes". In every frame after that, the ACK bit is 1, which means "these 4 bytes contain a real ack number, read them".
+**Options** are written as 1 byte kind, 1 byte length, then the value. **MSS** (kind 2, length 4) says "send me at most this many data bytes per frame" (section 28). **Window scale** fixes a limit of the 2-byte window field: at most 65535, which with a 50 ms round trip allows only about 1.3 MB per second on any cable. With this option in its SYN a side says "multiply every window I send by 128" (or another power of 2), so a window field of 8000 means 1,024,000 bytes. A real Linux SYN carries a few more options, not covered here.
 
-### Options
-An option is written as 1 byte for its kind, 1 byte for its total length, then the value.
+**Checksum vs CRC.** The chip adds the MAC group and the CRC, and the CRC covers one trip from one chip to the next. A router checks it, removes it, changes the TTL, and computes a new one. The checksum is written once by A's kernel and checked only by B's kernel. Both are needed because inside a router the frame sits in memory with no CRC. If a memory fault damages a byte there, the router computes a new CRC over the damaged bytes, and only the end-to-end checksum catches it.
 
-* **MSS**: "send me at most this many data bytes per frame" (section 77). Kind 2, length 4, value 2 bytes.
-* **Window scale**: the window field is 2 bytes, so it holds at most 65535. With a 50 ms round trip, A could then send only 65535 bytes every 50 ms, about 1.3 MB per second, even on a much faster cable. With this option in its SYN, a side says "multiply every window number I send by 128" (or another power of 2). After that, a window field of 8000 means 8000 × 128 = 1,024,000 bytes.
+The congestion window, the copies kept for resending and the timers are not fields. They exist only in the sender's kernel memory.
 
-A real Linux SYN carries a few more options. They are not covered here.
+## 28. How Big a Frame Can Be
 
-### Checksum vs CRC
-They are two different checks in two places:
+The **MTU** (maximum transmission unit) is the most bytes a frame can carry after the MAC group: IP group + TCP or UDP group + data. On a cable it is 1500, and the kernel stores one MTU number per chip. It is a size rule, not a speed. Reasons for a limit: hardware and switches reserve fixed-size memory slots for frames; while one frame is on a cable everything else for that cable waits, so a 10 MB frame would block everyone; and one damaged bit throws the whole frame away, which costs far less at 1500 bytes than at 10 MB.
 
-```text
-[MAC group][IP group][TCP group (checksum inside)][data][CRC]
- ^ chip                ^ A's kernel                       ^ chip
-```
+The whole cable frame is MAC group 14 + up to 1500 + CRC 4 = up to 1518 bytes. 1500 is a default. Data centers often set 9000 (**jumbo frames**), which works only if every chip and switch on that local network accepts it, since a switch set to 1500 drops larger frames. Some providers add 8 bytes of their own on the cable to the house, so its MTU is 1492. Every machine on one local network must use the same value.
 
-* **CRC**: the chip adds the MAC group at the front and the CRC at the end. The CRC covers one trip, from one chip to the next. A router checks it, removes the MAC group and CRC, changes the TTL, then writes a new MAC group and computes a new CRC.
-* **Checksum**: written once by A's kernel, inside the TCP or UDP group, and checked only by B's kernel.
+The **MSS** (maximum segment size) is the most data bytes per frame: 1500 − 20 (IP) − 20 (TCP) = 1460. Each side writes its own MSS in its SYN, and both use the smaller. A 10 MB `send()` becomes about 7,200 frames.
 
-Both are needed because inside a router, the frame sits in memory with no CRC protecting it. If a memory fault or a software bug damages a byte there, the router computes the new CRC over the damaged bytes, and every chip after that sees a matching CRC. Only the checksum, made at A and checked at B, catches it.
+**A smaller MTU on the path.** Say the provider's cable is 1492: `laptop --1500-- [home box] --1492-- company router -- ... -- S`. Two things handle this automatically, which is why nobody normally sets an MTU by hand:
 
-### What Is Not a Field
-The congestion window (rule 6) is not in the group. It exists only in the sender's kernel memory, and the other side never sees it. The same goes for the copies kept for resending, and for the timers.
+1. **The box rewrites the MSS in the SYN.** It knows its own provider cable is 1492, so it changes the MSS option in passing SYNs, both ways, from 1460 to 1452 (1492 − 40).
+2. **A router reports "too big".** For a smaller cable further away, Linux sets a "do not split" bit in the IP group of TCP frames. A router that gets a frame too big for its next cable drops it and sends an ICMP message (section 29) back: "too big, the most I can take is 1492". The sender's kernel remembers 1492 for that destination, makes smaller frames and resends the lost data. This is **path MTU discovery**.
 
----
+Without the "do not split" bit, IP lets the router split the frame and the receiver joins the pieces. Linux avoids that for TCP, because losing one piece loses the whole frame.
 
-## 77. How Big a Frame Can Be
+## 29. ICMP
 
-### MTU
-The **MTU** (maximum transmission unit) is the most bytes a frame can carry after the MAC group: IP group + TCP or UDP group + data, together. It is a size limit from the network's rules, not a speed.
+**ICMP** (Internet Control Message Protocol) is the protocol routers and kernels use to send short messages about delivery problems back to a frame's sender, like the TTL message in section 13. Its group sits right after the IP group (protocol 1), and it has no ports: the message is for the sender's kernel, not a program.
 
-* **Cable**: the rules set it to 1500.
-* **Wireless**: the air rules allow up to 2304 bytes. But the access point turns air frames into cable frames (section 54), and those can be at most 1500, so wireless networks use 1500 too.
-
-The kernel stores one MTU number for each chip, which is 1500 by default. Nothing measures it.
-
-### 1500 Is a Default, Not a Law
-1500 counts only the part after the MAC group. The whole cable frame is longer:
-
-```text
-MAC group           14 bytes
-IP + TCP + data     up to 1500 bytes   <- the MTU
-CRC                  4 bytes
-total               up to 1518 bytes
-```
-
-* **Larger**: in data centers, chips and switches are often set to an MTU of 9000. That only works if every chip and switch on that local network is set to accept it. A switch set to 1500 drops the larger frames. Frames over 1500 like this are **jumbo frames**.
-* **Smaller**: some internet providers add 8 bytes of their own to every frame on the cable to the house, so the MTU on that cable is 1492.
-
-Every machine on one local network has to use the same value.
-
-### MSS
-The **MSS** (maximum segment size) is the most data bytes per frame. The kernel computes it from the MTU:
-
-```text
-1500 (MTU) - 20 (IP group) - 20 (TCP group) = 1460 (MSS)
-```
-
-When the handshake starts, each side writes its own MSS into an option in its SYN. Both sides then use the smaller of the two.
-
-### A Smaller MTU on the Path
-The lower MTU is usually not on your own local network. It is on a cable further along, for example the provider's cable at 1492:
-
-```text
-laptop --1500-- [home box] --1492-- company router -- ... -- S
-```
-
-The laptop sends a 1500-byte frame, and the box cannot put it on the 1492 cable. Two things handle this automatically, which is why nobody normally sets an MTU by hand.
-
-**Fix 1: the box rewrites the MSS in the SYN.** The home box knows its own provider cable is 1492. When the laptop's SYN passes through, the box changes the MSS option inside it from 1460 to 1452 (1492 − 40), and it does the same to S's SYN coming back. From then on, both sides send frames that fit.
-
-**Fix 2: the router reports "too big".** This is for a smaller cable further away that the box does not know about. Linux sets a "do not split" bit in the IP group of TCP frames. A router that gets a frame too big for its next cable then:
-
-1. drops it
-2. sends an ICMP message (section 78) back to the sender: "too big, the most I can take is 1492"
-
-The sender's kernel stores 1492 for that destination, makes smaller frames, and resends the lost data (rule 3). Finding the smallest MTU on the way like this is **path MTU discovery**.
-
-If the "do not split" bit is not set, the IP rules let the router split the frame into smaller pieces instead, and the receiver's kernel joins them back together. Linux avoids this for TCP, because if one piece is lost, the whole frame is lost.
-
----
-
-## 78. ICMP
-
-### What It Is
-**ICMP** (Internet Control Message Protocol) is the protocol routers and kernels use to send short messages about delivery problems back to the sender of a frame. Section 18 used it once: when TTL reaches 0, the router drops the frame and sends an ICMP message back.
-
-### Where It Sits
-ICMP has its own group in the same place as the TCP or UDP group, right after the IP group (protocol number 1):
-
-```text
-[MAC group][IP group, protocol 1][ICMP group][CRC]
-```
-
-It has no ports. The message is for the sender's kernel, not for a program.
-
-### Its Fields
 ```text
 type        1 byte    what kind of message
 code        1 byte    more detail within that type
 checksum    2 bytes   damage check
 extra       4 bytes   depends on the type
-copy        the IP group and the first 8 bytes after it, from the frame that caused the problem
+copy        the IP group and the next 8 bytes from the frame that caused the problem
 ```
 
-The copy is how the sender's kernel knows which connection the message is about: those first 8 bytes after the IP group contain the from port and to port.
+The copied 8 bytes hold the from and to ports, so the sender's kernel knows which connection the message is about.
 
-### Messages Met So Far
 ```text
 type  code   meaning                    when
-11    0      TTL reached 0              section 18
-3     4      too big, cannot split      path MTU (section 77); "extra" holds the allowed size, e.g. 1492
-3     3      no program on that port    a UDP frame for a port nobody asked for (section 70)
-8     0      echo request               sent by the `ping` program
-0     0      echo reply                 the other kernel's answer to ping
+11    0      TTL reached 0              section 13
+3     4      too big, cannot split      path MTU (section 28); "extra" holds the allowed size
+3     3      no program on that port    a UDP frame for a port nobody asked for (section 21)
+8     0      echo request               sent by `ping`
+0     0      echo reply                 the other kernel's answer
 ```
 
-`ping` checks whether a machine is reachable without any program listening on a port: the other computer's kernel itself answers type 8 with type 0.
+`ping` checks whether a machine is reachable without any program listening: the other computer's kernel itself answers type 8 with type 0.
 
----
+## 30. A Full TCP Conversation, Every Field
 
-## 79. A Full TCP Conversation, Every Field
-
-### The Setup
-Two buildings on cable, as in section 16:
+Two buildings on cable, as in section 11. A sends "hi", D answers "ok", both close. ARP tables are already filled, and the starting numbers are A = 4000, D = 9000.
 
 ```text
 A  192.168.1.1   MAC aa:aa:aa:aa:aa:aa   port 50001
-R  socket 1: 192.168.1.254  MAC 11:11:11:11:11:11
-   socket 2: 192.168.2.254  MAC 22:22:22:22:22:22
+R  socket 1: 192.168.1.254  MAC 11:11:11:11:11:11      socket 2: 192.168.2.254  MAC 22:22:22:22:22:22
 D  192.168.2.4   MAC dd:dd:dd:dd:dd:dd   port 7000 (a program on D is listening)
 
 A --cable-- switch 1 --cable-- R --cable-- switch 2 --cable-- D
 ```
 
-A sends "hi", D answers "ok", then both close. A's ARP table already has R's MAC, and R's ARP table already has D's MAC. The starting numbers are A = 4000 and D = 9000.
+**Frame 1, the SYN, on building 1's cable**, after the start pattern. MAC group: to `11:11:..` (R socket 1), from `aa:aa:..` (A), type `0x0800`. TCP group: ports 50001 -> 7000, seq 4000, ack 0 (ignored, ACK bit 0), len 6 (24 bytes), flags SYN only, window 64240, MSS option 1460. Then 2 zero bytes of padding, because 14 + 20 + 24 + 4 = 62 is under the 64-byte minimum (D ignores them, since the IP total length says 44), and the CRC.
 
-### Frame 1: SYN, A -> D, on the Cable in Building 1
-Every byte, in the order it goes on the cable. Byte values are in hex.
-
-Start pattern (section 3):
+The IP group, all 20 bytes:
 
 ```text
-field           value                                bytes
-start pattern   10101010 seven times, then 10101011  AA AA AA AA AA AA AA AB
+field                   size     value               meaning
+version                 4 bits   4                   IP version 4: 4-byte addresses
+header length           4 bits   5                   5 × 4 = 20 bytes
+service                 1 byte   0                   priority marks; 0 = normal
+total length            2 bytes  44                  IP group + TCP group + data: 20 + 24 + 0
+identification          2 bytes  7238                a number for this frame, used only if a router splits it
+flags + split position  2 bytes  "do not split" = 1  section 28; position is used only when split
+TTL                     1 byte   64                  section 13
+protocol                1 byte   6                   a TCP group comes next
+header checksum         2 bytes  computed            damage check on these 20 bytes only
+from IP                 4 bytes  192.168.1.1         the original sender
+to IP                   4 bytes  192.168.2.4         the final destination
 ```
 
-MAC group, 14 bytes:
+**After R**, on building 2's cable, exactly five things have changed: to MAC (now D), from MAC (now R socket 2), TTL (63), the IP header checksum (recomputed because TTL changed) and the CRC. Everything else, including the whole TCP group, is the same. Every frame crosses R this way.
+
+**All 9 frames.** Fixed in every frame: type 0x0800, version 4, header length 5, service 0, "do not split", protocol 6, urgent pointer 0. The identification changes per frame, and checksums and CRC are computed per frame.
 
 ```text
-field      value         bytes               meaning
-to MAC     R socket 1    11 11 11 11 11 11   next machine on this cable
-from MAC   A             AA AA AA AA AA AA   who put it on this cable
-type       0x0800        08 00               an IP group comes next (section 19)
+#  direction  IP total  seq    ack    len  flags     window  data
+1  A -> D     44        4000   0      6    SYN       64240   none (MSS option)
+2  D -> A     44        9000   4001   6    SYN, ACK  64240   none (MSS option)
+3  A -> D     40        4001   9001   5    ACK       64240   none
+4  A -> D     42        4001   9001   5    ACK, PSH  64240   "hi"
+5  D -> A     42        9001   4003   5    ACK, PSH  64240   "ok"
+6  A -> D     40        4003   9003   5    ACK       64240   none
+7  A -> D     40        4003   9003   5    FIN, ACK  64240   none
+8  D -> A     40        9003   4004   5    FIN, ACK  64240   none
+9  A -> D     40        4004   9004   5    ACK       64240   none
 ```
 
-IP group, 20 bytes:
+* **len 6, then 5:** only the SYNs carry the 4-byte MSS option, since the sides agree on it once.
+* **Frames 3 and 4 both show seq 4001:** the plain ACK takes no number. "hi" is then 4001 and 4002.
+* **Frame 5, ack 4003:** D got 4001 and 4002, and sends "ok" in the same frame as the ack.
+* **Frames 6 and 7 both show 4003:** frame 7's FIN takes 4003, so D acks 4004. D's FIN takes 9003, so A acks 9004.
+* **IP total length** is 20 + 20 or 24 + data, for example 42 = 20 + 20 + 2.
+* **After frame 9**, A keeps the four values for 60 seconds in TIME_WAIT.
 
-```text
-field                 size     value               bytes         meaning
-version               4 bits   4                   4_            version of the IP rules; 4 = the 4-byte addresses
-header length         4 bits   5                   _5            IP group length in 4-byte units: 5 × 4 = 20 bytes
-service               1 byte   0                   00            priority marks; 0 = normal
-total length          2 bytes  44                  00 2C         IP group + TCP group + data: 20 + 24 + 0
-identification        2 bytes  7238                1C 46         a number for this frame, used only if a router splits it
-flags + split position 2 bytes "do not split" = 1  40 00         the bit from section 77; position is used only when split
-TTL                   1 byte   64                  40            hop counter (section 18)
-protocol              1 byte   6                   06            a TCP group comes next
-header checksum       2 bytes  computed            xx xx         damage check on these 20 IP bytes only
-from IP               4 bytes  192.168.1.1         C0 A8 01 01   the original sender
-to IP                 4 bytes  192.168.2.4         C0 A8 02 04   the final destination
-```
+## 31. Layers and IP
 
-TCP group, 24 bytes (20 + one 4-byte option):
+A frame now has four groups: MAC, IP, TCP or UDP, and data, each added for a different problem. They stay separate because each machine reads only its own part: a switch reads 6 bytes (section 14), a router reads the IP group and never the TCP group. With one big set of rules, every switch and router would have to understand all of it. Each group can also be replaced on its own:
 
-```text
-field            size     value                          bytes
-from port        2 bytes  50001                          C3 51
-to port          2 bytes  7000                           1B 58
-sequence number  4 bytes  4000                           00 00 0F A0
-ack number       4 bytes  0 (ignored, ACK bit is 0)      00 00 00 00
-len + rsv        1 byte   len 6 (6 × 4 = 24), rsv 0      60
-flags            1 byte   SYN only: 00000010             02
-window           2 bytes  64240                          FA F0
-checksum         2 bytes  computed                       xx xx
-urgent pointer   2 bytes  0                              00 00
-option: MSS      4 bytes  kind 2, length 4, value 1460   02 04 05 B4
-```
+* **Cable vs air:** Part 5 replaces the cable with radio waves, and only the MAC group changes (section 45).
+* **TCP vs UDP:** routers forward both the same way. Only the protocol field changes.
+* **A new kind of program** puts its own data in, and no switch, router or kernel changes.
 
-A real Linux SYN carries a few more options. Only MSS is shown here.
+Inside the kernel too, the TCP code hands its group to the IP code, the IP code to the driver, and none reads the others' fields.
 
-Data: none.
-
-Padding and CRC:
-
-```text
-field     value      bytes          meaning
-padding   zeros      00 00          14 + 20 + 24 + 4 = 62; the minimum is 64, so 2 zero bytes are added.
-                                    D ignores them because the IP total length says 44
-CRC       computed   xx xx xx xx    damage check for this one cable trip
-```
-
-Then the cable goes quiet.
-
-### Frame 1 Again, After R
-R checks the CRC, removes the MAC group and CRC, reads "to IP", picks socket 2, lowers the TTL, and builds a new frame. Every field from both hops:
-
-```text
-field                    hop 1 (building 1)          hop 2 (building 2)
-to MAC                   11:11:11:11:11:11 (R s1)    dd:dd:dd:dd:dd:dd (D)            <- changed
-from MAC                 aa:aa:aa:aa:aa:aa (A)       22:22:22:22:22:22 (R s2)         <- changed
-type                     0x0800                      0x0800
-version, header length   4, 5                        4, 5
-service                  0                           0
-total length             44                          44
-identification           7238                        7238
-flags + split position   do not split, 0             do not split, 0
-TTL                      64                          63                               <- changed
-protocol                 6                           6
-header checksum          computed                    computed again (TTL changed)     <- changed
-from IP                  192.168.1.1                 192.168.1.1
-to IP                    192.168.2.4                 192.168.2.4
-whole TCP group          as above                    unchanged, R never reads it
-padding                  2 zero bytes                2 zero bytes
-CRC                      computed                    computed again                   <- changed
-```
-
-Every frame below crosses R the same way: the MAC pair, the TTL, the IP header checksum and the CRC change. Nothing else does.
-
-### All 9 Frames
-These fields are the same in every frame: type 0x0800, version 4, header length 5, service 0, "do not split" = 1, protocol 6, urgent pointer 0. The identification gets a new number on each frame from the same sender. The checksums and CRC are computed for each frame.
-
-```text
-#  direction  from IP -> to IP               IP total  seq    ack    len  flags     window  data
-1  A -> D     192.168.1.1 -> 192.168.2.4     44        4000   0      6    SYN       64240   none (MSS option)
-2  D -> A     192.168.2.4 -> 192.168.1.1     44        9000   4001   6    SYN, ACK  64240   none (MSS option)
-3  A -> D     192.168.1.1 -> 192.168.2.4     40        4001   9001   5    ACK       64240   none
-4  A -> D     192.168.1.1 -> 192.168.2.4     42        4001   9001   5    ACK, PSH  64240   68 69 ("hi")
-5  D -> A     192.168.2.4 -> 192.168.1.1     42        9001   4003   5    ACK, PSH  64240   6F 6B ("ok")
-6  A -> D     192.168.1.1 -> 192.168.2.4     40        4003   9003   5    ACK       64240   none
-7  A -> D     192.168.1.1 -> 192.168.2.4     40        4003   9003   5    FIN, ACK  64240   none
-8  D -> A     192.168.2.4 -> 192.168.1.1     40        9003   4004   5    FIN, ACK  64240   none
-9  A -> D     192.168.1.1 -> 192.168.2.4     40        4004   9004   5    ACK       64240   none
-```
-
-MACs on each hop:
-
-```text
-direction   hop 1                  hop 2
-A -> D      to R s1, from A        to D, from R s2
-D -> A      to R s2, from D        to A, from R s1
-```
-
-### How to Read the Numbers
-* **len is 6, then 5.** Frames 1 and 2 have the 20 standard bytes plus the 4-byte MSS option: 24 ÷ 4 = 6. Frames 3 to 9 have no options: 20 ÷ 4 = 5. MSS is sent only in SYN frames, because both sides only need to agree on it once.
-* **Frames 3 and 4 both have seq 4001.** The SYN took 4000, so A's counter is at 4001. Frame 3 is a plain ACK and takes no number, so the counter stays at 4001 (section 74). Frame 4 is sent next and also shows 4001. Its "hi" is 2 bytes, so "h" = 4001 and "i" = 4002.
-* **Frame 5 has ack 4003.** D received 4001 and 4002 and wants 4003 next. D sent "ok" in the same frame as this ack instead of sending a separate ack frame.
-* **Frames 6 and 7 both have seq 4003.** Frame 6 is an ACK only. Frame 7's FIN takes 4003, so D acks it with 4004 in frame 8.
-* **Frame 8** is D's FIN combined with its ack of A's FIN. D's FIN takes 9003, so A acks 9004.
-* **IP total length**: 20 (IP) + 20 or 24 (TCP) + data bytes. 42 = 20 + 20 + 2.
-* **After frame 9**, A keeps the four values (192.168.1.1, 50001, 192.168.2.4, 7000) for 60 seconds in TIME_WAIT.
-
----
-
-## 80. Layers
-
-### The Problem
-A frame now has four groups: the MAC group, the IP group, the TCP or UDP group, and the data. Each was added to solve a different problem. Why are they kept as separate groups instead of one big set of rules?
-
-### Who Reads Which Group
-```text
-group               problem it solves                            read by
-voltage / waves     sending bits at all                          every chip
-MAC group + CRC     which machine on this cable or in this air   every chip, switches, access points
-IP group            which computer anywhere, across routers      routers, the two end kernels
-TCP or UDP group    which program; for TCP: loss, order, speed   the two end kernels only
-data                what the bytes mean                          the two programs only
-```
-
-A switch reads 6 bytes and nothing else. A router reads the IP group and never looks at the TCP group. If everything were one set of rules, every switch and router would have to understand all of it.
-
-### Each Group Can Be Replaced on Its Own
-* **Cable vs air.** The MAC group in the air is different: kind, duration, three MACs. But the IP and TCP groups inside are byte for byte the same. The access point swaps only the MAC group (section 54). TCP never knows that part of the path was wireless.
-* **TCP vs UDP.** Routers forward both the same way, because they only read the IP group. Only the protocol field (6 or 17) changes.
-* **A new kind of program.** A chat program, a game and a web browser each put their own data in. No switch, router or kernel has to change.
-
-Inside the kernel it works the same way. The TCP code hands its group to the IP code, the IP code hands it to the chip's driver, and none of them reads the others' fields.
-
-### Names and Numbers
-Each group is a **layer** (section 19). They are usually numbered, and the numbers appear in names like "L4 load balancer":
+**Numbers.** Each group is a **layer** (section 14), and the layers are numbered, as in "L4 load balancer":
 
 ```text
 number  name           what is in the frame            examples
-1       physical       voltage on the cable, waves     cable signals, Wi-Fi channel 36
-2       data link      MAC group + CRC                 cable frame, wireless frame, ARP
+1       physical       voltage on the cable            cable signals (Part 5: radio waves)
+2       data link      MAC group + CRC                 cable frame, ARP
 3       network        IP group                        IP, ICMP
 4       transport      TCP or UDP group                TCP, UDP
 7       application    the program's data              DNS questions, HTTP
 ```
 
-"L4" means "reads up to the TCP or UDP group". "L7" means "also reads the program's data".
+"L4" means "reads up to the TCP or UDP group", "L7" means "also reads the program's data". The numbers come from OSI, an older 7-layer design whose protocols are almost unused today, but whose numbering was kept. TCP/IP has no separate group for layer 5 (session: starting, pausing and resuming a conversation) or 6 (presentation: data format, such as text encoding or encryption). Programs handle both in their own data, so on a real frame they are part of layer 7.
 
-### Why the Numbers Skip 5 and 6
-In the late 1970s and 1980s, two groups designed network rules at about the same time:
+Two do not fit neatly. ARP has no IP group and never passes a router, so it is layer 2. ICMP sits where TCP or UDP would, but it reports IP problems and has no ports, so it counts as layer 3.
 
-* **OSI** (Open Systems Interconnection): an international standards organization (ISO) designed a full set of protocols with 7 layers.
-* **TCP/IP**: researchers on a US government network designed IP, TCP and UDP, with fewer layers.
+**IP as a protocol.** An IP address is one field. **IP** (Internet Protocol) is the whole set of rules, the 20-byte layout above plus what each machine does:
 
-TCP/IP was already running on real machines, and anyone could use it without paying, so it is what spread. The OSI protocols themselves are almost unused today. But OSI's 7-layer numbering was kept as a common way to talk about layers. So "L2", "L3", "L4" and "L7" are OSI numbers, while the actual groups in a frame are TCP/IP's.
+* **Sender's kernel:** fills in both IPs, sets TTL to 64 and the protocol number, and looks up "to IP" in its routing table: send directly or to the default gateway.
+* **Each router:** checks the header checksum and drops the frame if it does not match. It lowers TTL, and at 0 drops the frame and sends ICMP "TTL reached 0" back. It picks a socket from its routing table. If the frame is too big for that socket and "do not split" is set, it drops it and sends ICMP "too big". Otherwise it computes a new header checksum and sends the frame out.
+* **Receiver's kernel:** checks that "to IP" is its own, and passes the rest to the TCP, UDP or ICMP code by protocol number.
 
-The two skipped layers:
+IP does not ack, resend, keep order or slow down. A router that cannot deliver drops the frame. That is why TCP runs on top of it. This is IP version 4, with 4-byte addresses. Version 6, with longer addresses, is not covered here.
 
-* **5, session**: starting, pausing and resuming a conversation.
-* **6, presentation**: the format of the data, for example text encoding or encryption.
+## 32. Where One Message Ends
 
-TCP/IP has no separate group for either. Programs handle them inside their own data, so on a real frame they are part of layer 7. People often describe TCP/IP itself as 5 layers numbered 1 to 5, but in conversation, the OSI numbers 1, 2, 3, 4 and 7 are what is used.
+A's program calls `send("hi")` and then `send("there")`. TCP numbers bytes, not sends, so D's kernel keeps one buffer of bytes in order with nothing between them. If both frames arrive while D's program is busy, one `read(1024)` returns "hithere". It can also go the other way: if "there" arrived split across two frames, one `read()` might return "the" and the next "re". The sending side keeps no boundaries either: if the bytes do not all fit in the send buffer, `send()` waits or returns early with how many it took, and the program must call it again with the rest (Python's `sendall()` repeats the call itself).
 
-### Two That Do Not Fit Neatly
-**ARP.** An ARP frame has no IP group at all:
+So the two programs need their own rule, in the data at layer 7, for where a message ends. This is roadmap experiment 2, "No message boundaries". Three common ways:
 
-```text
-[to MAC, from MAC, type 0x0806][ARP question: "who has 192.168.1.254?"][CRC]
-```
+1. **Length first.** `00 02 h i 00 05 t h e r e`: D reads 2 bytes (2), then exactly 2 more ("hi"), then 2 bytes (5), then 5 more ("there"). D keeps calling `read()` until each count is reached, so split arrivals do not matter.
+2. **A special end byte**, such as newline `0A`: `h i 0A t h e r e 0A`. D reads until `0A`. A message cannot contain `0A` itself without an extra rule.
+3. **One message per connection.** A sends "hi" and FIN, and D reads until `read()` returns 0. The simplest, but every message costs a handshake and a close.
 
-Its job is to find a MAC on one local network, and it never passes through a router. So it is placed at layer 2.
-
-**ICMP.** By position, the ICMP group sits where TCP or UDP would, so it looks like layer 4:
-
-```text
-[MAC group][IP group, protocol 1][ICMP group: type, code, ...][CRC]
-```
-
-But its job is to report IP delivery problems, and it has no ports. So it is counted as part of layer 3, with IP.
+A program's own rules, for how messages are marked and what their bytes mean, are an **application protocol**: the layer 7 part. DNS (section 57) and HTTP (section 59) are two, built later.
 
 ---
 
-## 81. IP as a Protocol
+# Part 5: Wireless
 
-An **IP address** is one field in the IP group. **IP** (Internet Protocol) is the whole set of rules: the layout of the 20 bytes (section 79), and what each machine does with them.
-
-The sender's kernel:
-
-1. Fills in "from IP" with its own address and "to IP" with the destination.
-2. Sets TTL to 64 and the protocol number (6 for TCP, 17 for UDP, 1 for ICMP).
-3. Looks up "to IP" in its routing table to choose: send directly, or send to the default gateway.
-
-Each router:
-
-1. Checks the header checksum. If it does not match, it drops the frame.
-2. Lowers TTL by 1. If TTL reaches 0, it drops the frame and sends ICMP "TTL reached 0" back.
-3. Looks up "to IP" in its routing table and picks a socket.
-4. If the frame is too big for that socket and "do not split" is set, it drops the frame and sends ICMP "too big" back.
-5. Computes a new header checksum, because TTL changed, and sends the frame out.
-
-The receiver's kernel:
-
-1. Checks that "to IP" is its own address.
-2. Reads the protocol number and passes the rest to the TCP, UDP or ICMP code.
-
-What IP does not do: it does not ack, resend, keep order or slow down. A router that cannot deliver a frame drops it. That is why TCP exists on top of it.
-
-The version field says 4 because this is IP version 4, with 4-byte addresses. There is also a version 6 with longer addresses. It is not covered here.
+The same frames carried by radio waves instead of a cable, up to the access point and the home box.
 
 ---
 
-## 82. Where One Message Ends
+## 33. Radio Waves and Channels
 
-### The Problem
-A's program calls `send("hi")` and then `send("there")`. TCP numbers bytes, not sends. D's kernel puts arriving bytes into one buffer, in order, with nothing between them. Say D's program is busy for a moment, and both frames arrive in the meantime:
+Two laptops, A and B, in one room, no cable, no encryption. A's program sends `hi` to B's program, as in section 14.
 
-```text
-D's buffer:  h i t h e r e
-read(1024) returns "hithere"   (all 7 bytes, the most it can give)
-```
-
-It can also go the other way. If "there" arrived split across two frames, one `read()` might return "the" and the next "re".
-
-So the two programs have to agree on their own rule for marking where a message ends. That rule goes in the data, at layer 7.
-
-### Three Common Ways
-**1. Write the length first.** Before each message, A writes its length in 2 bytes:
+Each laptop has a **wireless chip**, hardware like the one behind the cable socket, connected to a short piece of metal called an **antenna**. To send, the chip pushes an electric current back and forth along A's antenna very fast. A current that keeps changing direction produces a **radio wave**: changing electric and magnetic force that spreads from the antenna in every direction at the speed of light, without needing air. When the wave reaches B's antenna, it creates a very small current there, swinging at the same rate, and B's chip measures it.
 
 ```text
-00 02 h i 00 05 t h e r e
+cable:     A's chip -> voltage on copper -> B's chip
+wireless:  A's chip -> current in A's antenna -> wave through the room -> small current in B's antenna -> B's chip
 ```
 
-D reads 2 bytes and gets 2, then reads until it has exactly 2 more bytes: "hi". Then it reads 2 bytes and gets 5, then 5 more: "there". D keeps calling `read()` until each count is reached, so a split arrival does not matter.
-
-**2. End each message with a special byte**, for example the newline byte, 0A:
+**Frequency** is how many times per second the current swings. Laptop chips use about 2.4 or 5 billion swings per second, written **2.4 GHz** and **5 GHz** (gigahertz). Like an FM radio set to 98.3, a chip set to one frequency measures only waves at that frequency, and others do not disturb it. The usable frequencies are divided into numbered **channels**:
 
 ```text
-h i 0A t h e r e 0A
+2.4 GHz group:   channel 1 = 2.412   channel 6 = 2.437   channel 11 = 2.462   (billion per second)
+5 GHz group:     channel 36 = 5.180  channel 40 = 5.200  channel 44 = 5.220
 ```
 
-D reads until it sees 0A. A message cannot contain 0A itself unless both sides add an extra rule for it.
+A and B must be set to the same channel to hear each other. Choosing the same channel replaces plugging in a cable. Below, both use channel 36.
 
-**3. One message per connection.** A sends "hi" and then FIN. D reads until `read()` returns 0 bytes. This is the simplest, but every message costs a handshake and a close.
+## 34. Putting Bits on the Wave, and Noise
 
-### Application Protocol
-A program's own rules, covering how messages are marked and what the bytes in them mean, are an **application protocol**: the layer 7 part. DNS is one. Its question and answer have a fixed layout inside the UDP data.
+As on the cable (section 2), A sends one value per time slot and B measures once per slot. On the cable each slot had two choices, high or low voltage. Each choice is a **level**. On wireless, the wave's swings can be made one of several agreed sizes per slot: with 2 levels (small = 0, big = 1) a slot carries 1 bit, with 4 sizes (`00`, `01`, `10`, `11`) it carries 2 bits. The slots per second stay the same, so 4 levels carry twice as many bits per second. Real chips vary both the size and the timing of the swings: the slowest setting has 2 combinations (1 bit per slot), the fastest on modern chips 1024 (10 bits per slot).
+
+The **signal** is A's wave as it arrives at B. **Signal strength**, how big its swings are, drops with distance and walls, and A cannot change it. **Noise** is the tiny random electrical activity always present on every frequency. It adds a small random amount to what B measures, the same size whether A is near or far.
+
+**Why far away needs fewer levels.** In made-up units, noise adds or subtracts up to 2:
+
+```text
+B far, 4 levels arrive as     0   3   6   9     A sends 6 (10), noise +2 -> B measures 8, closer to 9 -> reads 11: wrong
+B far, 2 levels arrive as     0           9     A sends 9 (1), noise -2 -> B measures 7, still near 9 -> reads 1: right
+B close, 4 levels arrive as   0  30  60  90     noise +2 -> 62, still clearly 60: right
+```
+
+Fewer levels sit further apart, so noise cannot push one near another. Close by, the signal is strong, so more levels and more bits per second work. Far away, fewer levels make a weak signal readable. That is why wireless is slower in a far room. A cable's signal strength stays the same, so it does not have this problem.
+
+## 35. Speed Per Frame, Busy and Quiet
+
+**On a cable**, the speed is agreed once at plug-in: the two pieces of hardware list the speeds they support, for example 100 Mbit/s and 1 Gbit/s, and pick the highest they share (**auto-negotiation**). **In the air**, signal strength changes all the time, when someone walks between the laptops, a door closes or a laptop moves. So A's chip picks the number of levels again for each frame, based on how its recent frames got through. B cannot know that choice in advance, so every frame starts with two parts sent at the slowest setting, which both chips know:
+
+```text
+[start pattern][short header: speed + length][rest of the frame at that speed]
+ ^--- both sent at the slowest setting ---^
+```
+
+The start pattern does the same job as on the cable. From the **short header**, B's chip learns the setting for the rest of the frame and its length, so it knows when the frame ends.
+
+**Busy and quiet.** Waves are always present, at least as noise, so "is A sending?" cannot mean "is there any wave?". B's chip measures wave strength on channel 36. **Busy** means stronger than a fixed limit built into the chip, or a recognized start pattern, even a weak one. **Quiet** means nothing stronger than noise.
+
+## 36. Finding Each Other
+
+In the air there is no plug. B does not know that A exists or which channel it uses.
+
+About 10 times per second (every 102.4 ms), A's chip sends a short **beacon** frame, whether anyone listens or not: to MAC `ff:ff:ff:ff:ff:ff` (everyone, like the ARP broadcast), from A's MAC (wireless chips have factory MACs too, section 7), a name typed in A's settings such as "a-laptop", and channel 36. The name is the **SSID** (service set identifier), the name shown in a laptop's list of wireless networks.
+
+B tries the channels one at a time, listening about a tenth of a second on each and noting beacons. This is **scanning**, and its result is the list you see when you click the wireless icon. To save time B can also send a short "is anyone here?" frame on each channel. When a person picks "a-laptop", B's chip switches to channel 36 and sends A "I want to join", and A replies "accepted". That replaces plugging in a cable. From then on they send frames to each other's MACs on channel 36.
+
+## 37. The Wireless Frame
+
+A's kernel builds the IP and TCP groups exactly as for the cable (sections 14 and 27). Only the outer group, built by the chip, differs:
+
+```text
+cable:     [start pattern][to MAC][from MAC][type 0x0800]                                   [IP group][TCP group] hi [CRC]
+wireless:  [start pattern][short header][kind][to MAC][from MAC][hw seq][type 0x0800]      [IP group][TCP group] hi [CRC]
+```
+
+**kind** says data, ack, beacon or join request, which the cable did not need because every frame carried data. **hw seq** is a hardware-level sequence number (section 39). The rest is as on the cable. The real frame has a third MAC field, used once a box in the middle is involved (section 43).
+
+## 38. Taking Turns in the Air
+
+The cable had separate wire pairs for each direction (section 5). The air has one channel 36 shared by both laptops. If A and B send at the same moment, the waves add up and each receives a mix: a **collision**. So only one can send at a time, half duplex. And unlike the old shared cable, A cannot notice a collision while sending: its own wave at its own antenna is millions of times stronger than B's, and most chips cannot send and receive on the antenna at the same time. So collisions must be avoided before they happen, and A learns a frame arrived only when B replies.
+
+**The sending rules**, for 5 GHz channels (a **microsecond** is a millionth of a second):
+
+1. **Listen.** If channel 36 is busy, wait until it is quiet.
+2. **Fixed wait.** Wait until it has been quiet for 34 microseconds.
+3. **Random wait.** Pick a random number from 0 to 15 and count down that many 9-microsecond slots, only while the channel stays quiet. If someone else starts, pause and later continue from where you stopped.
+4. **Send** the whole frame at 0. A cannot detect a collision, so it never stops partway.
+5. **B checks the CRC.** If it fails, B drops the frame and does nothing else.
+6. **B acks.** If it passes, B's chip waits 16 microseconds and sends a short frame with kind = ack and to MAC = A. 16 microseconds is about the shortest time to finish receiving, check the CRC and switch the antenna to sending. The number is fixed in the standard.
+7. **No ack.** A assumes the frame was damaged, doubles the random range (0 to 31, then 0 to 63, ...) and goes back to step 1. After a fixed number of tries, often 7, it gives up on the frame.
+
+These rules are **CSMA/CA** (carrier sense multiple access with collision avoidance). "Carrier sense" means listening before sending.
+
+**The waits in order.** A has two frames, B has one of its own. A's frame 1 has just ended:
+
+```text
+time (microseconds)       what happens
+0                         A's frame 1 ends
+16                        B's chip sends the ack (B's own frame must wait 34 + random, so it cannot go first)
+ack ends + 34             A (frame 2) and B (own frame) both finish the fixed wait; A picked 3 slots, B picked 11
++ 27 (3 slots)            A reaches 0 and sends frame 2; B has counted 3, sees busy, pauses with 8 left
+frame 2 ends + 16         B's chip sends the ack for frame 2
+ack ends + 34 + 72        B's 8 remaining slots run out, B sends its own frame; A acks it 16 later
+```
+
+* **Ack 16, new data at least 34.** The ack always goes before any new data, so A learns at once that its frame arrived. With equal waits, B's data could go first, A would see no ack and resend a frame B already has.
+* **The random part.** A and B finish the fixed 34 at the same moment. Without it they would collide every time. With 3 and 11, A goes first and B holds off.
+* **B keeps its leftover 8.** If A has a third frame it picks a new number, say 12, and B's 8 runs out first. The one that has waited longer gets its turn sooner, and neither laptop keeps the channel.
+* **Doubling after a failure** makes it less likely the two pick the same number again.
+
+## 39. The Hardware Ack and hw seq
+
+16 microseconds is too short for an interrupt, the driver and the kernel to run. The chip has its own small processor and program, so it builds and sends the ack itself:
+
+```text
+                  hardware ack (wireless)         TCP ack (kernel)
+built by          B's wireless chip               B's kernel TCP code
+covers            one frame, just received        bytes, by sequence number
+travels           only from B's antenna to A's    to the other program's computer
+sent after        16 microseconds                 usually within milliseconds
+```
+
+The hardware ack only means "the frame reached my antenna undamaged". Wireless adds it because collisions and noise are much more common in the air. TCP still runs above it unchanged, because the frame can still be lost later, for example when B's kernel drops it because the socket's receive buffer is full (section 23), or when a router further on drops it. The chip gets its ack as soon as the next antenna has the frame, and moves on:
+
+```text
+A ~~air~~ access point -- switch -- router -- ... -- B
+  ack here               no acks on any of these
+```
+
+**hw seq.** If B's ack is damaged, A resends and B gets the frame twice. B's chip sees the same hw seq as A's last frame, drops the copy and acks again: the same fix as section 22, at chip level, so the kernel rarely sees duplicates.
+
+**Where wireless frames get dropped.** Wireless adds a third place to section 20's two: in the air, after too many tries. When the air is very busy or the signal weak, for example two rooms from the access point, the chip gives up after its tries (section 38, step 7) and adds 1 to a counter of failed frames in the driver. The program is never told. Only TCP's timer on A finds out. An access point also drops frames like a router does when frames from its cable arrive faster than it can send them into the air.
+
+## 40. Others Nearby Can Receive Every Frame
+
+The wave goes in every direction, so any device nearby on channel 36 receives every bit. On a cable, someone would have to plug into the wire.
+
+The bits cannot be hidden, but A and B can change the bytes so they are useless without a secret only the two know. Tiny version with the secret 7: `h i` are bytes 104 105, A adds 7 and sends 111 112, B subtracts 7. Turning bytes into unreadable bytes with a secret is **encryption**, the secret is the **key**, and turning them back is **decryption**. A one-byte key has only 256 values, which a nearby laptop could try. Real wireless chips use a method called **AES** with a 16-byte key, far too many values to try, and it mixes the bytes so patterns do not show.
+
+The MAC group stays readable, because B's chip must read "to MAC" first. A nearby laptop can still see which devices talk, when and how much, but not what they say. These rules are the "WPA2" or "WPA3" setting in a laptop. An "open" network with no password sends the bytes unencrypted.
+
+**Wireless encryption vs TLS.** A cable normally has no encryption (an optional one, MACsec, is used mostly in data centers and large companies).
+
+```text
+                      who encrypts           protects
+wireless (WPA2/3)     the wireless chip      only the air between two antennas
+TLS                   the programs           the whole path, program to program (Part 10)
+```
+
+Wireless encryption ends at the receiving antenna, and the frame travels raw on any cable after it. The two are used together.
+
+## 41. Three Laptops on One Channel
+
+Laptop C joins the same way B did (section 36). The air already does a hub's job (section 7): A's wave reaches both B and C, and each chip keeps only frames whose "to MAC" is its own. B keeps `hi` and acks after 16 microseconds. C receives the whole frame, finds a correct CRC, sees the MAC is not its own and drops it without an ack. And now, while A sends to B, the channel is busy for C too. All three share the time on one channel.
+
+**Why nobody can start in the ack gap.** C sees A's frame end, a 16-microsecond gap, then B's ack. C needs 34 microseconds of quiet *in a row* before its random countdown, and B's ack starts at 16, so C's count breaks and starts again from 0 when the ack ends. If C could send after 16, its frame and B's ack would mix at A: A would get no ack and resend (B drops the copy using hw seq), and C would get no ack either.
+
+**Why not one channel per pair.** A chip measures one channel at a time (section 33). If C used channel 40, it would never receive anything A or B send, and switching channels means missing every frame on its own channel. So laptops that need to reach each other share one channel and take turns.
+
+**Two senders pick the same number.** After an ack, A and C both count 34 microseconds and both pick 5 slots, so both reach 0 at 79 and send. The waves mix and both CRCs fail. Neither notices while sending (section 38), so both whole frames are wasted, where the old cable would have stopped early. Both get no ack and double the range: say A picks 12 and C 25. A sends first, and C pauses with 13 left and continues after A's frame, the ack and 34 of quiet. With two laptops this was rare, because B mostly sent acks. With three, two often want the channel at once:
+
+```text
+range     chance both pick the same
+0 to 15   1 in 16, about 6%
+0 to 31   1 in 32, about 3%
+0 to 63   1 in 64, about 1.5%
+```
+
+## 42. Laptops That Cannot Hear Each Other
+
+A and C are at opposite ends of a long house, with B in the middle, 15 m from each. Both reach B, but at C's antenna A's wave is below the busy limit (section 35), so to C it is noise, and the same the other way. A sends a 200-microsecond frame to B. At 50, C wants to send, hears only quiet, counts 34 and 3 slots, and sends at 111. At B the waves mix, both CRCs fail, no ack, both double their range and retry.
+
+The random wait does not help here. When all three hear each other, A and C collide only if both reach 0 in the same 9-microsecond slot, otherwise the later one sees busy and pauses. Here C never hears A, so it collides whenever it starts anywhere in A's 200 microseconds, about 22 slots. With a range of 0 to 15, almost any pick lands inside A's frame, and every failed try wastes a whole frame. A **node** is any device that sends and receives on a network. This is the **hidden node problem**. Through a hub, every computer heard every frame, so "busy" was the same for all.
+
+**RTS and CTS.** B is the only one that hears both, so B announces how long the channel will be busy. The "kind" field gets two values, **RTS** (request to send, A -> B, "I want to send you a frame", 20 bytes) and **CTS** (clear to send, B -> A, "go ahead", 14 bytes). Every frame also gets a **duration** field after "kind": how many microseconds the channel stays busy after this frame, until the whole exchange ends. A chip that receives a frame not meant for it starts a timer from the duration and treats the channel as busy until it runs out, whatever its antenna measures. At the slowest setting an RTS takes about 52 microseconds, a CTS and an ack about 44:
+
+```text
+time (microseconds)   air                          A                  B               C
+before 0              quiet                        34 + random slots
+0 to 52               A's RTS, duration 336        sends RTS          receives it     hears nothing
+68 to 112             B's CTS, duration 276        receives it        sends CTS       receives CTS, timer to 112 + 276 = 388
+128 to 328            A's data                     sends hi           receives it     timer says busy
+344 to 388            B's ack                      receives it        sends ack       timer says busy
+388                   quiet                        done                               timer ends, counts 34 of quiet
+
+RTS duration = 16 + CTS 44 + 16 + data 200 + 16 + ack 44 = 336
+CTS duration = 16 + data 200 + 16 + ack 44             = 276
+```
+
+C still cannot hear A's RTS, so the RTS itself can collide, but that loses 52 microseconds instead of a 200-microsecond frame. The cost is 52 + 16 + 44 + 16 = 128 extra microseconds per frame, more than a small frame itself, so chips use RTS and CTS only above a frame size set in the chip.
+
+## 43. The Access Point
+
+RTS and CTS stop A and C from talking over each other, but if A wants to send to C, A's wave never reaches C, and laptops do not forward frames for each other.
+
+An **access point** is a small box in the middle whose only job is to be the center of the wireless network. It sends the beacons, every laptop joins it, and every frame goes laptop -> access point -> laptop, even between two laptops side by side. It fixes reach, and it fixes hidden laptops: every laptop hears the access point, so its CTS sets everyone's timer. The cost is that each frame crosses the channel twice.
+
+**Why the air needs a third MAC.** The access point does a switch's job (section 8) and never touches the IP or TCP group. On a cable, A's wire goes only to the switch, so the frame names only the final destination. In the air, A's wave reaches every chip in range, including C if C is close, so the frame must also say which chip takes it now and sends the hardware ack. Only one chip may ack, or the acks would collide. So a wireless frame has three MACs:
+
+```text
+receiver      the chip that should take this wave now and send the hardware ack
+transmitter   the chip sending this wave now
+third MAC     the other end: final destination on the way in, original sender on the way out
+
+                      receiver        transmitter     third MAC
+A -> access point     access point    A               C
+access point -> C     C               access point    A
+```
+
+If C hears the first frame, it sees receiver = access point and drops it.
+
+**A frame through the access point.** The access point keeps a list of joined laptops, filled when it sends "accepted" (unlike a switch, which learns from frames). A knows C's MAC from ARP and the access point's from its beacon. With 200-microsecond data frames and 44-microsecond acks:
+
+```text
+time (microseconds)   who sends        what
+before 0                               A waits 34 of quiet + random slots
+0 to 200              A                frame 1: receiver = access point, third = C
+216 to 260            access point     hardware ack to A ("the access point has it", not "C has it")
+260 to 348                             access point finds C in its list, waits 34 + 6 slots like any sender
+348 to 548            access point     frame 2: receiver = C, transmitter = access point, third = A
+564 to 608            C                hardware ack to the access point
+```
+
+Then C's kernel takes over as on the cable (section 6). The TCP ack comes back the same way. One `hi` uses about 608 microseconds of channel time, against about 260 sent directly.
+
+**Nobody gives out turns.** The access point never says "A, send now". Each chip, the access point's included, decides by itself from what it measures and its own random number: busy or timer running, wait; quiet for 34, count slots; count at 0, send. With every chip following the same rules, collisions are rare, and a missing ack leads to a retry.
+
+## 44. Two Wireless Networks in One Room
+
+A second access point with its own laptops is in the same room. On **different channels** (36 and 44), neither ever receives the other's waves, so they are fully independent. Many access points scan at startup and pick a quiet channel; others use the channel in their settings.
+
+On the **same channel**, the rules keep working across both, because they depend only on waves: a chip waits for any busy wave whichever network sent it, collisions between the networks are retried the same way, frames for the other network are dropped, and CTS timers apply to everyone. The networks stay independent in what they read, but not in time: one wave at a time, so each gets less channel time. People call this a "congested channel", but it is not section 24's congestion (a full router queue). Its name is **co-channel interference**. The 2.4 GHz group has only three channels that do not overlap (1, 6 and 11). The 5 GHz group has more, but in a building with many networks some must share.
+
+## 45. From the Air to the Cable
+
+The access point also has a cable socket, with computer D plugged in: `A ~~~ air ~~~ [access point] ---- cable ---- D`. It knows air devices from joining, and cable devices from the "from MAC" of arriving frames, like a switch. A knows D's MAC from ARP and does not care that D is on a cable.
+
+```text
+air frame:    [receiver: access point][transmitter: A][third: D][type 0x0800][IP group: A -> D][TCP group] hi [CRC]
+cable frame:  [to MAC: D][from MAC: A][type 0x0800][IP group: unchanged][TCP group: unchanged] hi [new CRC]
+```
+
+The access point acks A, removes the fields that matter only in the air (kind, duration, hw seq, the receiver/transmitter split), keeps the two end MACs, copies everything else and computes a new CRC. D's reply goes the opposite way. A device that joins two kinds of network at the MAC level, rebuilding the MAC part but never touching the IP group, is a **bridge**.
+
+In layer terms (section 31), wireless replaces only layers 1 and 2: waves instead of voltage, and a different MAC group. The IP and TCP groups are byte for byte the same, so TCP never knows part of the path was wireless. The frame size stays too: the air allows 2304 bytes after the MAC group, but cable frames carry at most 1500 (section 28), so wireless networks use an MTU of 1500 as well.
+
+## 46. The Home Box, With Wireless
+
+Most home boxes also have an access point inside, connected to the switch:
+
+```text
+                     [ home box ]
+ internet line ---- router
+                      |
+ cable sockets 1-4 -- switch ---- access point ~~~ air ~~~ laptops
+```
+
+The router and switch do their jobs from section 15. So a laptop in the air and a computer on cable socket 2 are on the same local network, and a frame between them goes laptop -> access point -> switch -> socket 2 without a router reading it.
+
+## 47. Local Networks Joined Over Wireless
+
+A router reads only the IP group, so it does not care whether a local network is wireless. Section 11 again, with an access point plugged into each building's switch:
+
+```text
+A, B, C ~~~ air ~~~ [AP1] -- switch 1 --(s1) R (s2)-- switch 2 -- [AP2] ~~~ air ~~~ D, E, F
+192.168.1.x                                                                         192.168.2.x
+```
+
+A (`192.168.1.1`) sends `hi` to D (`192.168.2.4`). D is not on A's prefix, so A sends to its default gateway `192.168.1.254` and finds R(s1) with ARP. That broadcast reaches everyone in building 1 through AP1, but R does not forward it.
+
+```text
+step                       where           next machine      sender on this step   third MAC   IP group
+1. A -> AP1                air, bldg 1     receiver = AP1    transmitter = A       R(s1)       A -> D, TTL 64
+2. AP1 -> switch 1 -> R    cable, bldg 1   to = R(s1)        from = A              none        A -> D, TTL 64
+3. R -> switch 2 -> AP2    cable, bldg 2   to = D            from = R(s2)          none        A -> D, TTL 63
+4. AP2 -> D                air, bldg 2     receiver = D      transmitter = AP2     R(s2)       A -> D, TTL 63
+```
+
+AP1 acks A and rebuilds the frame as a cable frame. R does exactly what it did in section 11. AP2 finds D in its joined list, rebuilds an air frame, and D acks AP2. In step 4, the third MAC is R(s2), not A, because a MAC only has meaning inside one local network, and in building 2 the frame came from the router. A's IP is still in the IP group. Both buildings can use channel 36: they are far apart and walls weaken the wave, so each hears the other only as noise. R never learns that A or D is wireless.
 
 ---
 
-## 83. A DNS Message, Byte by Byte
+# Part 6: The Internet
 
-A DNS question and its answer each fit in one UDP datagram. The whole DNS message is the data after the UDP group:
+Houses in different cities: internet providers, public and private addresses, NAT, and DNS.
+
+---
+
+## 48. Houses in Different Cities
+
+Your house is one local network, and a friend's house in another city is another. In section 11 one router joined two buildings because both were cabled to it. Between cities there is no cable, and you cannot lay one yourself.
+
+Companies lay cables under streets and between cities, and put routers where cables meet. Each house gets one cable from the company's nearest router and pays every month. This company is an **internet provider**.
+
+The cable plugs into the home box (sections 15 and 46), into one socket separate from the others that belongs to the router part. It is usually labeled **WAN** (wide area network: the company's cables, covering a large area). The other sockets are labeled **LAN** (local area network: your own).
 
 ```text
-[to MAC, from MAC, type 0x0800]
-[IP group: from 192.168.1.23, to 192.168.1.254, protocol 17, TTL 64, ...]
-[UDP group: from port 50123, to port 53, length, checksum]
-[DNS message: header 12 bytes, question 23 bytes]
-[CRC]
+laptops ~~~ [access point] -- switch -- (LAN side) router (WAN side) ---- company's router
+             your home local network                       one cable, like R1-R2 in section 12
+
+home router's table:   192.168.1.x -> directly (your home)      everything else -> the company's router
 ```
 
-The DNS message has its own 12-byte header, inside the data. It is a different thing from the MAC, IP and UDP groups.
+A router needs one socket per local network it joins, or it has nothing to choose between. The home router has two: one inside the box to the switch, and the WAN socket. The LAN sockets are switch sockets. If the company's cable went into a switch socket, the company's router would become part of your local network: your ARP broadcasts would reach the company, and frames would never pass through your router.
 
-### The Question From A to the Resolver
+Every house and office does this, and the companies' routers are cabled to each other across cities and countries. The **internet** is all these local networks (homes, offices, and the computers that run websites) joined by routers that many companies own. No single company owns it. Nothing new happens to a frame there: it is sections 11 to 13 repeated across many routers.
+
+## 49. Two Houses With the Same Addresses
+
+S runs a website at `198.51.100.7`. Home boxes come from the factory set up the same way, so laptop A in house 1 and laptop X in house 2 can both be `192.168.1.23`:
+
+```text
+house 1:  laptop A 192.168.1.23 -- [home box H1] --\
+                                                    [company router P] -- ... -- S 198.51.100.7
+house 2:  laptop X 192.168.1.23 -- [home box H2] --/
+```
+
+A's frame reaches S, since routers read only "to IP". But S's reply to `192.168.1.23` cannot be delivered: P would need `192.168.1.x` pointing to two different cables.
+
+**Why houses reuse addresses.** 4 bytes give about 4.3 billion addresses, fewer than the world's phones, laptops and servers. So three ranges were set aside for use only inside a local network: `10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16`. Any house or office may reuse them, and routers between companies have no rows for them. Every other address belongs to exactly one machine, handed out in ranges to companies by organizations that track who has which.
+
+* **Private address:** from the three reused ranges. It means something only inside one local network.
+* **Public address:** belongs to one machine in the world, so routers anywhere can have a row leading to it. `198.51.100.7` is public.
+
+**What each house gets.** The provider owns ranges of public addresses. The home box asks for one over the WAN cable (or a person types one the company gave), and it is set on the WAN socket only: H1 gets `203.0.113.10`, H2 `203.0.113.20`. Now P's rows are unique. Other companies' routers send `203.0.113.x` toward this provider because it tells them so, with the automatic messages from section 12. Typing an address yourself does not work: an address works only if routers have rows leading to your cable, and only the company sets those. A made-up address gets no replies, or sends them to whoever really owns it.
+
+**Example addresses.** Three small ranges, `192.0.2.0/24`, `198.51.100.0/24` and `203.0.113.0/24`, are never given to any company. They exist for books and tutorials, so readers who copy an example do not send frames to someone's real machine. These notes use them for that reason.
+
+## 50. NAT
+
+S replies to the "from IP" it sees, so A's private address cannot be it, and A, B and C share the house's one public address. The home box changes the frame on the way out.
+
+**Going out.** A (`192.168.1.23 : 50001`) sends to S (`198.51.100.7 : 80`). The box picks an unused port of its own, say 40001, writes a row in a table, replaces "from IP" with its public address and "from port" with 40001, and the router part sends the frame out of the WAN socket as usual:
+
+```text
+before:  from 192.168.1.23 : 50001   to 198.51.100.7 : 80
+after:   from 203.0.113.10 : 40001   to 198.51.100.7 : 80
+```
+
+**Coming back.** S replies to `203.0.113.10 : 40001`, which routers can reach. The box finds row 40001 and changes "to" back to `192.168.1.23 : 50001`. S never sees A's private address.
+
+**Two laptops, same port.** B (`192.168.1.24`) also picks 50001 by chance, since each kernel picks its own (section 19). The box gives B another outside port:
+
+```text
+inside IP : port        outside port    other end
+192.168.1.23 : 50001    40001           198.51.100.7 : 80     (A)
+192.168.1.24 : 50001    40002           198.51.100.7 : 80     (B)
+```
+
+S sees two connections that differ by port (section 25). If the box changed only the IP, both replies would come to `203.0.113.10 : 50001` and the box could not tell them apart, which is why the port changes too.
+
+Changing addresses and ports at the box is **NAT** (network address translation). It is the one exception to "a router never reads past the IP group" (section 14). The box deletes each row a short time after the connection ends. NAT is needed only because several devices share one public address. In section 11 every computer had its own address, so nothing was rewritten.
+
+**Where NAT sits.** It is a step in the router part, at its WAN side, not a separate chip. Most home boxes are small computers running Linux, and the NAT table lives in that kernel's memory next to the router's rows:
+
+```text
+going out:  1. router part reads to-IP 198.51.100.7, decides: WAN socket
+            2. NAT changes from 192.168.1.23 : 50001 to 203.0.113.10 : 40001, writes the row
+coming in:  1. frame arrives for 203.0.113.10 : 40001
+            2. NAT finds row 40001, changes "to" to 192.168.1.23 : 50001
+            3. router part reads the new to-IP, decides: LAN side
+```
+
+Coming in, NAT must run first: before the change, the to-IP is the box's own address and the router part would not know which laptop it is for.
+
+## 51. Frames Nobody Inside Asked For
+
+A frame arriving for a port with no row, say `203.0.113.10 : 40050`, belongs to no connection started inside, so the box has no inside address for it and drops it. Laptops inside can start connections with anyone, because a row is made on the way out. Nobody outside can start one with a laptop inside: their first frame, the SYN (section 25), finds no row.
+
+**Port forwarding.** A runs a program on port 7000 and a friend in another city wants to connect. The fix is a row typed into the box's settings by hand, `outside port 7000 -> 192.168.1.23 : 7000`, never deleted automatically. The friend connects to `203.0.113.10 : 7000`, the box changes the to-IP and sends it to A, and replies go out through the same row. This is the only way an unasked frame gets through the box.
+
+**After a connection closes**, its row still exists for a while, so S could still send a frame that reaches the laptop. Three things limit this:
+
+1. **Only S can use the row.** Most boxes, including Linux-based ones, forward only frames whose "from" is exactly the row's other end, `198.51.100.7 : 80`. Some boxes do not check this.
+2. **The row does not last.** The box sees the FINs pass (section 26) and deletes the row a short time later, about 2 minutes on Linux-based boxes.
+3. **The laptop's kernel rejects it.** Port 50001 was picked for `connect()`, nobody called `listen()` on it, and the connection is closed, so the kernel answers RST (section 25) and no program sees the frame.
+
+**Who can reach whom.** A laptop can start a connection to any machine routers can reach where a program is listening. A server in a data center: yes, it is set up for that. A friend's laptop in another city: only if the friend's box has a port forwarding row (your own box makes its NAT row automatically). A friend's laptop in the same house: yes, directly at its private address, because the frame goes laptop -> access point -> switch -> laptop (section 46) and never passes the router part or NAT. The other direction always works: anyone you connect to can reply.
+
+## 52. One Laptop in Two Networks
+
+A laptop with two wireless chips, or with a cable and Wi-Fi at once, can be in two local networks, like R in section 11. Each chip has its own MAC and gets its own address.
+
+**Different ranges, no conflict.** Home Wi-Fi gives `192.168.0.23`, office Wi-Fi `192.168.1.40`, and the routing table gets a row per network:
+
+```text
+192.168.0.x       directly, out of chip 1
+192.168.1.x       directly, out of chip 2
+everything else   next router 192.168.0.1 out of chip 1, priority 600
+everything else   next router 192.168.1.1 out of chip 2, priority 601
+```
+
+The two "everything else" rows match the same addresses, so each has a priority number, the **metric**, and the lower wins. All outside traffic goes out of chip 1, and chip 2 is used only for `192.168.1.x`. On Ubuntu, NetworkManager sets the metric by connection type (a cable gets a lower number than Wi-Fi, so it wins), and it can be changed in the connection's settings.
+
+**Same range, conflict.** If both networks use `192.168.0.x`, two rows match the same prefix and the metric always picks one. A printer at `192.168.0.50` is reachable only on the winning network. Nothing breaks completely, but that whole range goes to one of the two networks. Being in both networks also does not make the laptop pass frames between them. Linux has that switched off by default.
+
+## 53. Names Instead of Numbers
+
+People remember words, not `198.51.100.7`, and the address changes if the website moves to another data center. So people type `www.bluepizza.com` and the computer finds the current address.
+
+**A file on every computer.** The first fix was a text file with one line per name, `198.51.100.7    www.bluepizza.com`. Linux still has it, at `/etc/hosts`. When the network was a few hundred computers in the 1970s and early 80s, one organization kept the master file and every computer downloaded copies. It stops working at scale: hundreds of millions of names would make a huge file of mostly unused lines, every change would need fresh copies everywhere, and every change would go through one organization.
+
+**Asking a name server.** Instead, a computer asks for only the name it needs. Say one computer, N at `198.51.100.53`, holds the whole list, and a program on it listens on port 53, agreed in advance like port 80 for web servers (section 19). N's address is one of A's settings, like the default gateway:
+
+```text
+question:  [IP: A -> 198.51.100.53][UDP: from port 50123 to port 53]  "what is the address of www.bluepizza.com?"
+answer:    [IP: 198.51.100.53 -> A][UDP: from port 53 to port 50123]  "www.bluepizza.com is 198.51.100.7"
+```
+
+Then A's program calls `connect(("198.51.100.7", 80))`. A computer that answers name questions is a **name server**. It uses UDP (section 21) because the question and answer each fit in one frame. TCP would need a handshake and FINs to carry two small frames. If no answer comes within about 1 second, A asks again.
+
+One name server is not enough, for the same reasons as the single file: billions of questions a day for one machine, every change going through whoever runs it, and if it is off, no name works anywhere.
+
+## 54. Splitting the Names
+
+The list is split by the parts of the name, read from right to left. Each level of name servers knows only who handles the next part. A pizza shop owns `bluepizza.com`. Its website computer `www.bluepizza.com` is at `198.51.100.7`. It rents a name server from DNSHost, `ns1.dnshost.net` at `203.0.113.53`. One of the com servers is at `192.0.2.10`.
+
+```text
+root server:                      com                ->  ask the com server at 192.0.2.10
+com server (192.0.2.10):          bluepizza.com      ->  ask ns1.dnshost.net at 203.0.113.53
+ns1.dnshost.net (203.0.113.53):   www.bluepizza.com  ->  198.51.100.7
+```
+
+Looking up `www.bluepizza.com` takes three UDP questions to port 53: the root says "for com, ask 192.0.2.10", the com server says "for bluepizza.com, ask ns1.dnshost.net at 203.0.113.53", and that server answers `198.51.100.7`. The 13 root server addresses are a fixed list built into name server programs, the file idea again for 13 lines.
+
+This fixes all three problems. Root servers answer only about the last part, and com servers only about `.com` names. The shop edits its own lines on its own name server, and the company that sold it the name added the `bluepizza.com -> ask ns1.dnshost.net` line to the com servers once. Each level has several servers, so one being off stops nothing.
+
+A name with everything under it, like `bluepizza.com`, is a **domain**. This whole split system is **DNS** (Domain Name System).
+
+## 55. The Resolver and Its Memory
+
+Three questions before every connection, from every computer, would flood the root and com servers. So the laptop holds one name server address in its settings, given by the home box along with the others (section 16), and asks it one question. That server might be the home box passing questions on, the provider's, or a large shared one like Google's `8.8.8.8` or Cloudflare's `1.1.1.1`. A different one can be typed into the laptop's network settings. It holds the 13 root addresses, asks root, com and bluepizza's server itself, and sends back the final answer. A name server that does the asking for others is a **resolver**.
+
+The resolver keeps every answer in memory, not only the final one:
+
+```text
+remembered:  com -> ask 192.0.2.10      bluepizza.com -> ask 203.0.113.53      www.bluepizza.com -> 198.51.100.7
+
+later question                         what the resolver does                       questions sent
+another laptop: www.bluepizza.com      answers from memory                          0
+someone: mail.bluepizza.com            skips root and com, asks 203.0.113.53        1
+someone: other.com                     skips root, asks the com server              2
+```
+
+A resolver used by thousands of laptops rarely asks the root servers. The laptop and browser also keep short-term copies, so repeated connections often send no question at all.
+
+Each answer carries a number of seconds set by the name's owner, for example 300, after which the resolver deletes it and asks again. This is also called **TTL**, a different field from the IP group's hop counter (section 13). A long TTL, say 1 day, means few questions, but after an address change resolvers keep giving the old one until their copy expires. A short TTL, say 60 seconds, spreads a change within a minute but brings more questions.
+
+## 56. Kinds of Records
+
+One line in a name server's list is a **record**: name, type, value and TTL. The type says what the value means:
+
+```text
+name                 type     value                     TTL      meaning
+www.bluepizza.com    A        198.51.100.7              300      this is the address
+bluepizza.com        NS       ns1.dnshost.net           86400    ask that server about this domain
+bluepizza.com        NS       ns2.dnshost.net           86400    a second one, in case one is off
+www.bluepizza.com    CNAME    bluepizza.hostco.net      3600     look up that name instead
+```
+
+**NS** (name server) records are the "ask this server" lines on the root and com servers. Their value is a name, but the resolver needs an IP to send to, so the com servers also send the name server's address in the same answer (`ns1.dnshost.net A 203.0.113.53`). The root servers do the same for each com server.
+
+**CNAME** (canonical name, "the real name") says "this name is another name for that one". Say the shop rents its website computer from a hosting company, `hostco.net`, which moves customers between machines. With an A record the shop would edit it at every move. With the CNAME, hostco keeps the A record for `bluepizza.hostco.net` current, and the shop never edits anything. The resolver gets the CNAME, looks up `bluepizza.hostco.net`, answers the laptop with that address, and remembers both records, each for its own TTL.
+
+**How many steps.** Each "ask this other server" is one step, and three is the common case with nothing in memory. A university that gives its computer science department its own name server makes `www.cs.someuni.edu` four steps. A CNAME starts a new lookup, up to three more steps. An NS answer that gives only a server's name, without its address, needs that name looked up first.
+
+## 57. A DNS Message, Byte by Byte
+
+A DNS question or answer fits in one UDP datagram. The DNS message is the data after the UDP group, with its own 12-byte header inside the data:
+
+```text
+[MAC group][IP group: from 192.168.1.23, to 192.168.1.254, protocol 17][UDP group: 50123 -> 53][DNS message][CRC]
+```
+
+**The question from A to the resolver:**
+
 ```text
 header (12 bytes)
   ID              3A 7F    a random number; the answer carries the same one
   flags           01 00    "this is a question; please do the asking for me"
   questions       00 01    1 question follows
-  answers         00 00    0
-  name servers    00 00    0
-  extra records   00 00    0
-
+  answers, name servers, extra records    00 00 each
 question
   name     03 77 77 77                       3, "www"
            09 62 6C 75 65 70 69 7A 7A 61     9, "bluepizza"
@@ -3365,20 +1223,16 @@ question
   class    00 01    always 1 in practice
 ```
 
-The name is not stored with dots. Each part is written as one length byte followed by its letters, and a 0 byte ends the name. That is method 1 from section 82, used inside the name.
+The name has no dots: each part is one length byte and its letters, and a 0 byte ends it. That is method 1 from section 32, inside the name.
 
-### The Answer From the Resolver to A
+**The answer from the resolver:**
+
 ```text
 header
-  ID              3A 7F    same as the question, so A knows which question this answers
+  ID              3A 7F    same as the question
   flags           81 80    "this is an answer; I did the asking; no error"
-  questions       00 01
-  answers         00 01    1 answer record follows
-  name servers    00 00
-  extra records   00 00
-
-question     (copied back unchanged, the same 23 bytes as above)
-
+  questions 00 01, answers 00 01, name servers 00 00, extra records 00 00
+question          (copied back unchanged)
 answer record
   name     C0 0C           "the same name as at byte 12 of this message"
   type     00 01           A
@@ -3388,134 +1242,48 @@ answer record
   value    C6 33 64 07     198.51.100.7
 ```
 
-* **ID.** A could have several questions out at once, and UDP does not track which datagram answers which (section 84). The ID is how A matches each answer to its question.
-* **C0 0C.** Instead of writing `www.bluepizza.com` again, these 2 bytes point back to byte 12 of this message, where the name starts in the question. This saves space.
-* **The four counts** say how many records of each kind follow. "Name servers" and "extra records" are where an NS record and its address go in the com server's answer, the "address sent alongside" from section 66.
-* **Where the message ends.** One datagram is one whole DNS message, and UDP's length field marks its end. UDP never joins two datagrams the way TCP joins bytes, so DNS needs no extra boundary rule over UDP.
+* **ID:** A can have several questions out at once, and UDP does not track which datagram answers which (section 58), so the ID matches them.
+* **C0 0C** points back to byte 12, where the name starts, instead of writing it again.
+* **The four counts** say how many records of each kind follow. A com server's answer puts the NS record and its address in "name servers" and "extra records".
+* **The end:** one datagram is one whole message, and UDP's length marks its end. UDP never joins datagrams the way TCP joins bytes, so DNS needs no boundary rule of its own.
 
-### Each Resolver Question Is a New Message
-Nothing is appended to the laptop's message. The laptop's message ends at the resolver. The resolver then writes its own new questions, each in a new UDP datagram, from its own IP and port, with its own new ID:
+The laptop's message ends at the resolver. The resolver writes its own new questions, each a new datagram from its own address and port, with a new ID:
 
 ```text
 1. laptop   -> resolver       ID 3A7F   "www.bluepizza.com?"  (please do the asking)
-2. resolver -> root           ID 91C2   "www.bluepizza.com?"  (just tell me what you know)
-   root     -> resolver       ID 91C2   NS for com + com server's address
-3. resolver -> 192.0.2.10     ID 4E08   "www.bluepizza.com?"
-   com      -> resolver       ID 4E08   NS for bluepizza.com + 203.0.113.53
-4. resolver -> 203.0.113.53   ID B713   "www.bluepizza.com?"
-   ns1      -> resolver       ID B713   A 198.51.100.7
+2. resolver -> root           ID 91C2   "www.bluepizza.com?"  -> NS for com + com server's address
+3. resolver -> 192.0.2.10     ID 4E08   "www.bluepizza.com?"  -> NS for bluepizza.com + 203.0.113.53
+4. resolver -> 203.0.113.53   ID B713   "www.bluepizza.com?"  -> A 198.51.100.7
 5. resolver -> laptop         ID 3A7F   A 198.51.100.7
 ```
 
-In steps 2 to 4, the "please do the asking" flag is off. Root and com only answer with what they hold. In step 5, the resolver writes a fresh answer message for the laptop, using the laptop's original ID, 3A7F.
+In steps 2 to 4 the "please do the asking" flag is off, so root and com answer only with what they hold.
+
+## 58. UDP Has No Connection
+
+UDP's kernel table has one row per program's port (`port 50123 -> DNS program`, for datagrams from anyone). TCP's has one row per connection, with sequence numbers, window, copies, timers and state. When A sends a UDP question, its kernel writes no row saying "expect a reply from 192.168.1.254 port 53". It sends the frame and keeps nothing. That is what "UDP has no connection" means.
+
+The reply still comes back: the resolver's kernel gives its program A's IP and port from the frame, the program sends a new datagram to `192.168.1.23 : 50123`, and A's kernel delivers it to the program on that port. To UDP it is just another datagram. Two questions from the same port get both answers on that port in either order. "Question and answer" belong to DNS's rules, and the ID matches them.
+
+**`connect()` on UDP** sends nothing. It only adds the other end to the kernel's row: after `connect(("192.168.1.254", 53))`, datagrams for port 50123 from anyone else are not given to the program, and `send()` needs no address. This is a "connected UDP socket", but unlike a TCP connection there is no handshake, the other side knows nothing, the row holds only the other end's IP and port, and lost datagrams stay lost and unordered.
+
+**Fake DNS answers.** Without `connect()`, a datagram from any IP reaches the program, and anyone can write any "from IP" into a frame, so they can pretend to be the resolver without seeing A's question. Two things stop it. The program remembers the ID and where it asked, and throws away answers from elsewhere or with another ID (with `connect()`, the kernel does the address check; the ID check stays in the program, since the kernel never reads DNS data, and most DNS code on Linux uses `connect()`). And guessing is hard: the faker must guess the ID (1 in 65,536) and A's random port (1 in about 28,000), together about 1 in 1.8 billion, and arrive before the real answer.
+
+A resolver that does accept a fake answer keeps it for the TTL the faker wrote, and gives every laptop that asks the faker's address. This is **DNS cache poisoning**, and it is why the ID and port are random instead of counting up.
 
 ---
 
-## 84. UDP Has No Connection
+# Part 7: HTTP
 
-### What the Kernel Keeps
-UDP has ports, and the kernel keeps one table: which port belongs to which program. What it does not keep is a record for each conversation.
-
-```text
-UDP: one row per program's port
-  port 50123  ->  DNS program on A
-  (any datagram arriving for 50123, from anyone, goes to this program)
-
-TCP: one row per conversation
-  192.168.1.1 : 50001  <->  192.168.2.4 : 7000
-     next seq to send, next byte expected, window,
-     copies of unacked bytes, timers, state (e.g. TIME_WAIT)
-```
-
-When A sends a UDP question, A's kernel writes no row saying "I sent something to 192.168.1.254 port 53, expect a reply". It builds the frame, sends it, and keeps nothing about it. That is what "UDP has no connection" means.
-
-### How the Reply Still Comes Back
-1. A's program sends from port 50123 to the resolver's port 53. The frame carries "from port 50123".
-2. The resolver's program reads the question. Its kernel also gives it A's IP and port, taken from the frame.
-3. The resolver's program sends a new datagram from port 53 to `192.168.1.23 : 50123`.
-4. A's kernel reads "to port" 50123, finds the row `50123 -> DNS program`, and gives it the data.
-
-To UDP, the reply is just another datagram that happens to go to port 50123. If A's program sends two questions from the same port, both answers come back to that port, possibly in either order. The idea of "question and answer" belongs to the programs, following DNS's rules, and the ID is how A's program matches them.
-
-### connect() on UDP
-`connect()` is the function a program calls to give its kernel the other end's address. With TCP, it starts the handshake. With UDP, it sends nothing at all. It only adds the other end's IP and port to the kernel's row:
-
-```text
-before connect():
-  port 50123  ->  DNS program        (accepts datagrams from anyone)
-
-after connect(("192.168.1.254", 53)):
-  port 50123, only from 192.168.1.254 : 53  ->  DNS program
-```
-
-After that:
-
-1. **Receiving**: a datagram for port 50123 from any other IP or port is not given to the program.
-2. **Sending**: the program can call `send()` without writing the address each time.
-
-This is called a "connected UDP socket", but it is not a connection like TCP's:
-
-```text
-                          TCP connection             UDP after connect()
-frames sent to set up     handshake, 3 frames        none
-other side knows          yes, both kernels agree    no, only A's kernel has the row
-what the row holds        seq numbers, window,       the other end's IP and port, nothing else
-                          copies, timers
-lost datagram             resent                     still lost
-order                     guaranteed                 not guaranteed
-```
-
-### Fake DNS Answers
-Without `connect()`, any datagram for the program's port, from any IP, reaches the program. Someone on another computer cannot see A's question, but they can write any "from IP" into a frame they send, so they can pretend to be the resolver. Two things stop a fake answer from being used.
-
-**1. The program checks.** A program that sends a DNS question remembers the ID and where it sent it. It throws away any answer that comes from a different IP or port than the one it asked, or that has a different ID. With `connect()`, the kernel does the first check. The ID check stays in the program, because the kernel never reads the DNS data. Most DNS code on Linux uses `connect()`.
-
-**2. Guessing is hard.** To be accepted, the faker has to guess:
-
-```text
-ID              1 of 65,536
-A's port        1 of about 28,000 (picked at random by the kernel)
-together        about 1 in 1.8 billion
-```
-
-The fake also has to arrive before the real answer, because once the program accepts an answer, it stops listening for that question.
-
-If a resolver does accept a fake answer, it keeps it in memory for the TTL the faker wrote. During that time, every laptop that asks this resolver for `www.bluepizza.com` gets the faker's address. This attack is **DNS cache poisoning**, and it is the reason the ID and the port are random instead of counting up.
+What a browser and a web server write into a TCP connection, from HTTP/1.1 to HTTP/3.
 
 ---
 
-## 85. Request and Response Belong to the Programs
+## 59. HTTP: Asking for a Page
 
-### TCP Does Not Have Them Either
-TCP gives the two programs two streams of bytes, one in each direction, delivered in order and with no gaps. What those bytes mean, and whether one message is a "request" and the next is a "response", is decided by the programs' own rules at layer 7.
+**Request and response belong to the programs.** TCP gives two programs two byte streams, one each way, in order with no gaps. Whether one message is a "request" and the next a "response" is decided by the programs' own layer 7 rules. TCP's acks are not responses: the kernels write them and the program never sees them. Either side can send at any time, as in a chat program. TCP's record holds sequence numbers and windows, not "which question this answers". So the difference between UDP and TCP is not request and response: TCP has a connection and delivers every byte in order, UDP sends separate datagrams and guarantees nothing. Request and response are added by a layer 7 protocol, as DNS does with its ID. A program can also send over TCP and never read anything, like a program sending log lines to a log server all day. Acks still flow back without data. If the other program stops reading, its room drops to 0 and eventually `send()` waits (rule 5). If the connection breaks, for example by RST, the next `send()` returns an error.
 
-* **TCP's acks are not responses.** The kernels write them, only to say "bytes up to here arrived". The program never sees them.
-* **Either side can send at any time.** In a chat program, both sides send whenever a person types. Nothing forces question, answer, question, answer.
-* **TCP's record is about delivering bytes.** It holds sequence numbers, window and copies, not "which question is this the answer to".
-
-So the difference between UDP and TCP is not request and response. TCP has a connection and guarantees every byte arrives in order. UDP sends separate datagrams and guarantees nothing. Request and response are something a layer 7 protocol adds, like DNS does with its ID.
-
-### Sending in One Direction Only
-A program can send over TCP and never read anything back. For example, a program can send its log lines to a log server all day, and the log server never writes a byte back. TCP has no issue with that. The receiving kernel still sends acks, so frames flow back, but they carry no data.
-
-Two things still reach a program that never reads:
-
-* **If the other program stops reading**, its room drops to 0, the sending kernel stops, and eventually `send()` waits (rule 5).
-* **If the connection breaks**, for example the other side sent RST, the next `send()` returns an error.
-
----
-
-## 86. HTTP: Asking for a Page
-
-### The Situation
-The browser on A has a TCP connection open to `198.51.100.7` port 80 (section 66). It wants the page `/menu`. A page is just bytes the server stores, for example in a file.
-
-### What the Request Has to Say
-1. **What to do**: get a page. The browser writes the word `GET`.
-2. **Which page**: its name, `/menu`. A name like this is a **path**.
-3. **Which version of the rules**: `HTTP/1.1`, so the server reads the rest correctly.
-4. **Which website**: `Host: www.bluepizza.com`. The reason is below.
-5. **Where the request ends**: method 2 from section 82. Each line ends with the two bytes `0D 0A` (written `\r\n`), and an empty line ends the request.
+**The request.** The browser has a TCP connection open to `198.51.100.7` port 80 and wants the page `/menu`, bytes the server stores, for example in a file. The request says what to do (`GET`, "give me"), which page (`/menu`, a **path**), which version of the rules (`HTTP/1.1`), and which website (`Host: www.bluepizza.com`). Each line ends with the two bytes `0D 0A` (written `\r\n`), and an empty line ends the request (method 2 from section 32):
 
 ```text
 GET /menu HTTP/1.1\r\n             20 bytes
@@ -3523,60 +1291,11 @@ Host: www.bluepizza.com\r\n        25 bytes
 \r\n                                2 bytes   <- empty line: request is over
 ```
 
-### Why the Host Line
-One computer can run several websites, all on port 80. The browser connects to port 80 for every website, by agreement, and the person only types a name, never a port. So one web server program listens on port 80 and holds the pages of several websites, in separate folders:
+**Why the Host line.** One computer can run several websites, all on port 80, because the browser always connects to port 80 and the person only types a name. For example, a hosting company rents one computer to many shops (like hostco, section 56): `www.bluepizza.com` and `www.greencafe.com` both have A records `198.51.100.7`, and one web server program on port 80 holds `/sites/bluepizza/menu` and `/sites/greencafe/menu`. The TCP connection carries only the IP, so the browser writes the name it looked up, and the program picks the folder.
 
-```text
-DNS:
-  www.bluepizza.com    A    198.51.100.7
-  www.greencafe.com    A    198.51.100.7     <- same computer
+**Lines.** HTTP/1.1 requests are text, one byte per letter, digit or space. A **line** is a run of bytes ended by `0D 0A`. Line 1 holds the action, path and version separated by spaces. Each line after it holds one piece of information as `Name: value`. `0D` and `0A` are control bytes from old terminals, where one moved the print position back to the left and the other moved it down a line. The request arrives as part of one byte stream (section 32), possibly in several pieces, so the server reads until it sees the four bytes `0D 0A 0D 0A`: the end of the last line, then the empty line.
 
-web server program on port 80:
-  folder /sites/bluepizza/   has  menu
-  folder /sites/greencafe/   has  menu
-```
-
-This is common when a hosting company rents one computer to many small shops, like hostco in section 66. Both websites have a page called `/menu`. The TCP connection only carries the IP, so with only `GET /menu` the program could not tell which folder to use. The browser writes the name it looked up with DNS, `Host: www.bluepizza.com`, and the program picks the bluepizza folder.
-
-### What a Line Is
-HTTP/1.1 requests are text. Every letter is one byte, for example `G` = 47 and `E` = 45. A **line** is a run of these bytes ended by the two bytes `0D 0A`. The first line, byte by byte:
-
-```text
-G  E  T     /  m  e  n  u     H  T  T  P  /  1  .  1  \r \n
-47 45 54 20 2F 6D 65 6E 75 20 48 54 54 50 2F 31 2E 31 0D 0A
-```
-
-20 is the space. HTTP's rules say what each line holds:
-
-* **Line 1**: the action, the path and the version, separated by spaces.
-* **Each line after that**: one extra piece of information, written `Name: value`.
-
-`0D` and `0A` are control bytes, not letters. They come from old terminals, where one moved the print position back to the left and the other moved it down a line. HTTP's rules use the pair to mark the end of a line.
-
-### Where the Request Ends
-TCP gives the server one stream of bytes (section 82), possibly arriving in several pieces. The server has to know when the browser has finished its request, so it can start answering. After the last `Name: value` line, the browser sends one more `0D 0A` with nothing before it: an empty line. The server keeps reading until it sees four bytes in a row, `0D 0A 0D 0A`:
-
-```text
-...  c  o  m  \r \n \r \n
-...  63 6F 6D 0D 0A 0D 0A
-              ^ end of the Host line
-                    ^ empty line = request is over
-```
-
-### What the Reply Has to Say
-1. **Did it work**: a number and a short word. `200 OK` means "found, here it is". `404 Not Found` means "no page with that path".
-2. **What kind of bytes the page is**: `Content-Type`. It does the same job as the type field in the MAC group and the protocol field in the IP group: it says what comes next.
-3. **Where the page ends**: the page can contain any bytes, including `0D 0A 0D 0A`, so an empty line cannot mark its end. Method 1 from section 82 is used instead: the server writes the length first, `Content-Length`.
-4. **The page itself.**
-
-Say the page is this 26-byte text:
-
-```text
-Margherita 8\n      13 bytes
-Pepperoni 10\n      13 bytes
-```
-
-The reply:
+**The reply** says whether it worked (`200 OK`: found, here it is; `404 Not Found`: no page with that path), what kind of bytes the page is (`Content-Type`, the same job as the MAC type and IP protocol fields), where the page ends, and the page. The page can contain any bytes, including `0D 0A 0D 0A`, so its end is marked by its length first, `Content-Length` (method 1 from section 32). For the 26-byte menu `Margherita 8\n` + `Pepperoni 10\n`:
 
 ```text
 HTTP/1.1 200 OK\r\n
@@ -3586,164 +1305,55 @@ Content-Length: 26\r\n
 Margherita 8\nPepperoni 10\n
 ```
 
-The browser reads lines until the empty line, finds `Content-Length: 26`, and then reads exactly 26 more bytes.
+The browser reads lines until the empty line, then exactly 26 more bytes. Other `Content-Type` values: `text/html` (a web page the browser draws), `image/jpeg` (a photo). In HTTP/1.1 the first line and headers are always text, while the body can be any bytes, since it is never searched for `0D 0A`.
 
-Some `Content-Type` values:
+**Names.** `GET /menu HTTP/1.1` is the **request line**, and `GET` the **method**. `HTTP/1.1 200 OK` is the **status line**, and `200` the **status code**. Each `Name: value` line is a **header**. The bytes after the empty line are the **body**. These rules are **HTTP** (Hypertext Transfer Protocol; "hypertext" is text with links to other pages). All of it is layer 7, plain bytes in the TCP data that routers and TCP never look at.
 
-```text
-text/plain      plain text, like the menu
-text/html       a web page the browser draws
-image/jpeg      a photo
-```
+**Why not end the request with FIN.** FIN (method 3) closes only the browser's sending direction, so the reply would still arrive. But then the browser could not send another request on that connection, and a page needs many, each needing a new handshake and a fresh congestion window of 10 frames (rule 6). So the request ends with the empty line, and the next request goes on the same connection. When it does close is in section 70. If the connection is lost before the reply, the reply has nowhere to go: the server replies only on the request's connection, and cannot open one to the browser, which sits behind NAT with no row for connections from outside (section 51). The browser opens a new connection and sends the request again.
 
-In HTTP/1.1, the first line and the headers are always text. The body can be any bytes: text, a photo, a video, a zip file. Because of `Content-Length`, the body is never searched for `0D 0A`, so any byte value is allowed.
+## 60. Sending Data to the Server
 
-### Names
-* The first line of a request, `GET /menu HTTP/1.1`, is the **request line**. `GET` is the **method**.
-* The first line of a reply, `HTTP/1.1 200 OK`, is the **status line**. `200` is the **status code**.
-* Each `Name: value` line is a **header**.
-* The bytes after the empty line are the **body**.
-* These rules are **HTTP** (Hypertext Transfer Protocol). "Hypertext" means text with links to other pages.
+To order one Margherita, the order goes in the request's body, the same place the page went in the reply. Three things change from GET:
 
-All of it is layer 7: plain bytes in the TCP data. Routers and TCP never look at any of it.
-
-### Why the Connection Is Not Closed After the Request
-The browser could mark the end of its request with FIN (method 3). FIN closes only the browser's sending direction, so the reply would still come back:
+1. **Method `POST`.** `GET` means "give me this page" and must not change anything on the server. Browsers repeat GETs freely, for example on reload, so an order sent with GET would be placed twice. Data the server should act on uses `POST`.
+2. **A path for the part that takes orders**, `/order`.
+3. **A body, with `Content-Type` and `Content-Length`.** A common format for small data is `name=value` pairs joined by `&`, labeled `application/x-www-form-urlencoded`.
 
 ```text
-browser -> server:  "GET /menu ..."  then FIN     browser can't send anymore
-server  -> browser: "HTTP/1.1 200 OK ... body"    browser still receives this
-server  -> browser: FIN
-```
-
-HTTP/1.1 uses the empty line instead because of reuse. After a FIN, the browser can't send another request on that connection. A page usually needs many requests, so each one would need a new handshake and would start again at a congestion window of 10 frames (rule 6). Keeping the connection open avoids both. After the reply, the browser sends its next request on the same connection.
-
-### When the Connection Does Close
-The server program never sees a FIN frame itself. Its kernel handles it, and the program only notices `read()` returning 0 bytes (section 75).
-
-1. **After a request**: the browser sends no FIN. The server knows the request is over from the empty line.
-2. **Later**: when the tab is closed, or the connection sits unused for a while, the browser's kernel sends FIN. The server program, waiting in `read()` for the next request, gets 0 bytes and closes its side too.
-
-The server can also close first. Many servers close a connection that has been unused for some seconds, and then the browser's `read()` gets the 0 bytes.
-
-If the connection is lost before the reply, the reply has nowhere to go. The server only replies on the connection the request came in on. It can't open a new connection to the browser, because the browser sits behind a home box with NAT and there is no row for a connection started from outside (section 60). So the browser opens a new connection and sends the request again.
-
----
-
-## 87. Sending Data to the Server
-
-### The Problem
-The browser wants to send an order for one Margherita to the server. Where in these bytes does the order go?
-
-### POST
-The order is bytes, so it goes in the body of the request, the same place the page went in the reply. Three things change from the GET request.
-
-**1. A different method.** `GET` means "give me this page", and it must not change anything on the server. Browsers repeat GETs freely, for example on reload, so an order sent with GET would be placed twice. Sending data that the server should act on uses the method `POST`.
-
-**2. A path for the part of the server that takes orders**: `/order`.
-
-**3. A body, with `Content-Type` and `Content-Length`.** The server needs `Content-Length` to know where the order ends, because it comes after the empty line. A common format for small data is `name=value` pairs joined by `&`:
-
-```text
-item=margherita&count=1        23 bytes
-```
-
-The `Content-Type` name for this format is `application/x-www-form-urlencoded`. It is long, but it is only a label.
-
-The request:
-
-```text
-POST /order HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-Content-Type: application/x-www-form-urlencoded\r\n
-Content-Length: 23\r\n
-\r\n
+POST /order HTTP/1.1\r\n                                     HTTP/1.1 200 OK\r\n
+Host: www.bluepizza.com\r\n                                  Content-Type: text/plain\r\n
+Content-Type: application/x-www-form-urlencoded\r\n          Content-Length: 18\r\n
+Content-Length: 23\r\n                                       \r\n
+\r\n                                                         order 57 received\n
 item=margherita&count=1
 ```
 
-The server reads lines until the empty line, finds `Content-Length: 23`, and reads exactly 23 more bytes. A GET has no body, so it has no `Content-Length`, and the server takes the body length as 0.
+A GET has no body and no `Content-Length`, so its body length is 0. Requests and replies have the same shape: first line, headers, empty line, optional body.
 
-The reply:
+**Query parameters.** Values can also go in the path after a `?`: `GET /menu?size=large&veg=yes HTTP/1.1`. The part before `?` picks the page. The part after is the **query**, and each pair is a **query parameter**. Use the query with GET for which version of a page is wanted, such as search words or a filter, which changes nothing and is safe to repeat. Use the body with POST for data the server acts on, and anything large: servers limit the request line, often to about 8 KB, while a body can be megabytes. A space, `&` or `=` inside a value would break the splitting, so they are written as `%` and the byte in hex: `search=blue%20pizza`. The query uses the same format as the form body, but no `Content-Type`, which only ever describes the body.
 
-```text
-HTTP/1.1 200 OK\r\n
-Content-Type: text/plain\r\n
-Content-Length: 18\r\n
-\r\n
-order 57 received\n
-```
+## 61. Many Files on One Page
 
-Requests and replies have the same shape: a first line, headers, an empty line, then an optional body.
+The `/menu` page now shows 10 photos, so the browser needs 11 files. On one HTTP/1.1 connection, a whole reply must be read before the next can start, so everything waits behind a large photo.
 
-### Query Parameters
-Extra values can also go in the path, after a `?`, in the same `name=value&name=value` format:
+**Pipelining.** The browser sends all 11 requests back to back. Replies still come back in request order, because a reply has no field saying which request it answers, so a 5 MB photo 2 still holds up the small photos after it. It is part of the HTTP/1.1 rules, but browsers removed it: replies still had to come in order, and some servers and machines in between handled it wrongly, sending replies mixed up or not at all. Programs that are not browsers, such as command-line HTTP tools, can still use it.
 
-```text
-GET /menu?size=large&veg=yes HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-\r\n
-```
-
-The server program splits the path at the `?`. The part before it, `/menu`, picks the page. The part after it, `size=large&veg=yes`, is the **query**, and each pair is a **query parameter**.
-
-* **Query**: with GET, to say which version of a page is wanted, for example search words or a filter. It changes nothing on the server, so it is safe to repeat.
-* **Body**: with POST, for data the server acts on, and for anything large. Servers limit the length of the request line, often to about 8 KB, while a body can be megabytes.
-
-A value cannot contain a space, `&` or `=` directly, because those would break the splitting. They are written as `%` followed by the byte in hex. A space is `%20`, so `search=blue pizza` is sent as `search=blue%20pizza`.
-
-`application/x-www-form-urlencoded` describes the body. The query uses the same format and the same `%` rule, but has no `Content-Type` header: `Content-Type` only ever describes the body. The server knows by HTTP's rules that whatever follows `?` in the path is in this format.
-
----
-
-## 88. Many Files on One Page
-
-### The Problem
-The `/menu` page is now a real web page that shows 10 photos. The browser needs 11 files. On one HTTP/1.1 connection, the browser sends a request and has to read the whole reply before the next reply can start. If one photo is large, everything behind it waits.
-
-### Sending the Next Request Early: Pipelining
-The browser sends all 11 requests back to back on the one connection. This saves waiting, but the replies still have to come back in the same order as the requests. A reply has no field saying which request it answers, so the browser matches them only by order. If photo 2 is 5 MB, photos 3 to 10 sit behind it on the server, even if they are tiny. This is **pipelining**.
-
-It is real. It is part of the HTTP/1.1 rules, from the original 1999 rules to the current RFC 9112, the document that holds the HTTP/1.1 rules. Browsers implemented it and then removed it: Chrome around 2013 to 2014, and Firefox, which had it behind a setting that was off by default, around 2017 (exact versions not checked). Two reasons: the waiting behind a big reply, and some servers and machines in between handled it wrongly, sending replies mixed up or not at all, and a browser could not tell in advance which ones would. Some programs that are not browsers, such as command-line HTTP tools, can still use it.
-
-### Several Connections
-Browsers open up to 6 TCP connections to the same website name at once, and send one request at a time on each:
+**Several connections.** Browsers open up to 6 TCP connections to the same website name and send one request at a time on each, so the big photo blocks only its own connection:
 
 ```text
 connection 1:  page      -> photo 6
 connection 2:  photo 1   -> photo 7
 connection 3:  photo 2 (5 MB) .........................
-connection 4:  photo 3   -> photo 8
-connection 5:  photo 4   -> photo 9
-connection 6:  photo 5   -> photo 10
+connection 4:  photo 3   -> photo 8         (connections 5 and 6 likewise)
 ```
 
-The big photo blocks only its own connection. The limits:
+The limits: each connection costs a handshake (50 ms with a 50 ms round trip), each starts at 10 frames and learns the path separately while competing with the others at router lines, the server keeps 6 records per browser, and it is still capped at 6. The root cause of both problems: a reply has no label, so a connection carries one reply at a time, start to finish.
 
-* **Each connection costs a handshake** before its first request. With a 50 ms round trip, that is 50 ms each.
-* **Each connection starts at a congestion window of 10 frames** (rule 6) and grows on its own. Six connections each learn the path separately and compete with each other at the router lines.
-* **The server keeps 6 records and buffers** per browser instead of 1.
-* **It is still capped at 6.** A page with 100 files waits in line anyway.
+HTTP/1.1 sites are still fast. With a short round trip, say 10 ms, a few extra handshakes cost little. A reply can say how long the browser may keep the file, for example a day, so the next visit sends no request. Sites join many small code files into one. Files are spread over names like `img1.bluepizza.com` and `img2.bluepizza.com`, since the limit is per name. And often a server placed in front of the website speaks HTTP/2 (section 62) to the browser and HTTP/1.1 to the website's server: a proxy (section 65).
 
-The root cause in both cases: a reply has no label, so a connection can only carry one reply at a time, start to finish.
+## 62. HTTP/2
 
-### Why HTTP/1.1 Websites Are Still Fast
-* **6 connections already handle a normal page well.** With a short round trip, for example 10 ms, a few extra handshakes cost little. A better method helps most when the round trip is long and the page has many files.
-* **The browser keeps copies.** A reply can carry a header saying how long the browser may keep the file, for example a day. On the next visit, the browser uses its stored copy and sends no request.
-* **Websites send fewer, bigger files.** For example, many small code files are joined into one before being put on the server.
-* **Files are spread over several names**, like `img1.bluepizza.com` and `img2.bluepizza.com`. The limit of 6 applies to each name, so two names give 12 connections.
-* **Often the browser is not talking HTTP/1.1 at all.** Many websites have a server from another company placed in front of theirs. That server speaks HTTP/2 (section 89) to the browser and HTTP/1.1 to the website's own server. That is a later topic (proxies).
-
-### The Next Problem
-Suppose each reply were cut into small pieces, and every piece carried a label saying which request it belongs to. What would that make possible on a single connection?
-
----
-
-## 89. HTTP/2
-
-### Labeled Pieces
-With a label on every piece, one connection can carry all 11 replies at once, mixed together, and the browser sorts the pieces back out by label.
-
-Each request and each reply is cut into pieces. Every piece starts with a 9-byte binary header:
+With a label on every piece, one connection can carry all 11 replies mixed together, and the browser sorts the pieces by label. Each request and reply is cut into pieces, each starting with a 9-byte binary header:
 
 ```text
 length      3 bytes   how many bytes follow this 9-byte header
@@ -3752,136 +1362,39 @@ flags       1 byte    one bit means "this is the last piece of this request or r
 stream ID   4 bytes   the label: which request this piece belongs to
 ```
 
-HTTP/2 calls these pieces **frames**. That is a different thing from the cable frames in sections 3 to 55. An HTTP/2 frame is a few bytes inside the TCP data.
-
-### The Label
-One request and its reply share one number. One request plus its reply is a **stream**.
-
-The browser numbers its streams 1, 3, 5, 7 and so on, odd numbers only. The server can also start a stream of its own, without a request, and it uses even numbers. That way, if both start a stream at the same moment, they cannot pick the same number. Stream 0 is kept for messages about the whole connection, such as a settings message sent at the start.
-
-### On One Connection
-```text
-browser -> server:
-  HEADERS stream 1   GET /menu
-  HEADERS stream 3   GET /photo1.jpg
-  HEADERS stream 5   GET /photo2.jpg     (5 MB)
-  ... all 11 requests, back to back
-
-server -> browser:
-  HEADERS stream 1   200, text/html
-  DATA    stream 1   page bytes, last piece
-  HEADERS stream 5   200, image/jpeg
-  DATA    stream 5   16 KB of photo 2
-  HEADERS stream 3   200, image/jpeg
-  DATA    stream 3   all of photo 1, last piece
-  DATA    stream 5   16 KB of photo 2
-  DATA    stream 5   ...
-```
-
-The server sends pieces from any stream in any order. Small photos finish while the big one is still going.
-
-### Pieces Are Sent Whole
-The stream ID appears only once, in the 9-byte header at the start of a piece. The bytes after it carry no label. The reader counts `length` bytes and puts all of them into that stream. So a piece from another stream cannot be put inside it:
+HTTP/2 calls these pieces **frames**, a different thing from the cable and air frames in Parts 1 to 5: a few bytes inside the TCP data. One request plus its reply is a **stream** and shares one number. The browser uses odd numbers (1, 3, 5, ...). The server can start streams of its own with even numbers, so the two never pick the same one. Stream 0 is for messages about the whole connection, such as a settings message at the start.
 
 ```text
-correct:
-[hdr: stream 5, length 16384][16384 bytes of photo 2][hdr: stream 3, length 900][900 bytes of photo 1]
-
-if stream 3's piece were put inside stream 5's piece:
-[hdr: stream 5, length 16384][8000 bytes of photo 2][hdr: stream 3 ...][900 bytes][8384 bytes of photo 2]
-                              ^ the reader counts 16384 bytes from here, all as photo 2
+browser -> server:  HEADERS 1 GET /menu    HEADERS 3 GET /photo1.jpg    HEADERS 5 GET /photo2.jpg (5 MB) ...
+server -> browser:  HEADERS 1 200 text/html    DATA 1 page, last    HEADERS 5 200 image/jpeg    DATA 5 16 KB
+                    HEADERS 3 200 image/jpeg    DATA 3 all of photo 1, last    DATA 5 16 KB    DATA 5 ...
 ```
 
-In the second line, the reader would take stream 3's header and its 900 bytes as part of photo 2, then read the leftover photo 2 bytes as if they were the next header, and everything after that would be garbage. Mixing happens only between whole pieces.
+The server sends pieces from any stream in any order, so small photos finish while the big one is still going.
 
-### Why 16,384 Bytes
-A DATA piece carries at most 16,384 bytes (2^14) by default, so a 5 MB photo becomes about 320 pieces. The receiver can allow larger pieces, up to about 16 MB, with the settings message on stream 0. The limit is kept small because a piece, once started, must be sent whole before another stream's piece can go in. Small pieces mean a small reply never waits behind more than 16 KB of a big one. They also mean the receiver needs only 16 KB of memory to hold one piece while reading it.
+**Pieces are sent whole.** The stream ID appears only in a piece's header. The reader counts `length` bytes and puts all of them into that stream. If stream 3's piece were put inside stream 5's, the reader would take its header and bytes as photo 2, then read leftover photo 2 bytes as the next header, and everything after would be garbage. So mixing happens only between whole pieces. A DATA piece carries at most 16,384 bytes by default, so a 5 MB photo is about 320 pieces. The receiver can allow up to about 16 MB through the settings message, but small pieces mean a small reply never waits behind more than 16 KB of a big one, and the receiver needs only 16 KB of memory per piece. TCP knows nothing of pieces: one 16,384-byte piece spreads over about 12 cable frames, and the program reads 9 bytes, then `length` bytes, and repeats (method 1, section 32).
 
-### Pieces and Cable Frames
-A 16,384-byte piece plus its 9-byte header is spread over about 12 cable frames, at 1460 data bytes each. TCP does not know pieces exist; it only numbers bytes. The receiving program reads the byte stream like this: read 9 bytes, get the length, read that many bytes, repeat. That is method 1 from section 82.
+**What it fixes from section 61:** one handshake instead of six, one congestion window shared by all requests, no cap of 6, and one server record instead of six. Headers are also binary: a header sent once, like `Host: www.bluepizza.com`, is later referred to by a small number. Browsers use HTTP/2 only on encrypted connections, agreed during the encryption setup (section 84).
+
+**In a server program.** The "one request" a server's code sees is a stream. In Node, the `http2` library reads each 9-byte header, adds the bytes to that stream's table, and once a stream's headers have arrived builds `req` and `res` objects and calls the handler. `res.write()` and `res.end()` are cut into DATA pieces with that stream's ID and mixed onto the same connection. So a handler runs once per request either way: per request on one of up to 6 connections in HTTP/1.1, per stream on one shared connection in HTTP/2. Node's usual `http` module, which Express is built on, speaks only HTTP/1.1. Often a Node server stays on HTTP/1.1 behind a server that speaks HTTP/2 to browsers.
+
+## 63. One Lost Frame Stops Every Stream
+
+All 11 streams travel in one TCP connection. Say a cable frame with part of photo 2 is lost:
 
 ```text
-one HTTP/2 piece:  [9-byte header][16,384 bytes]
-on the cables:     frame 1460 B | frame 1460 B | ... | frame ~333 B     (about 12 frames)
+frame 20   bytes of a photo 2 piece (stream 5)     lost
+frame 21   bytes of a photo 1 piece (stream 3)     arrives
+frame 22   last bytes of photo 1 (stream 3)        arrives
 ```
 
-### What This Fixes From Section 88
-* One handshake instead of six.
-* One congestion window that grows once and is shared by all requests.
-* No cap of 6. A hundred streams can be open at once.
-* One record on the server instead of six.
+The browser's kernel holds frames 21 and 22, because frame 20's bytes come first (rule 2), so `read()` returns nothing past frame 19. Photo 1 is complete in kernel memory, but the browser cannot reach it. The server resends frame 20 at least one round trip later, often 200 ms or more, and then `read()` returns 20, 21 and 22 at once. The HTTP/2 labels cannot help, because they are inside the bytes, and TCP knows only one line of numbered bytes. On a good cable losses are rare. On weak Wi-Fi or a phone network, losing 2 of every 100 frames stops all streams each time, and HTTP/1.1 with 6 connections can be faster, since a loss stops only one connection.
 
-Two more changes:
+Everyone waiting behind the first in line is **head-of-line blocking**, the same problem as section 61. HTTP/2 removed it at the HTTP level, but it is still there in TCP underneath.
 
-* **The headers are binary, not text.** A header sent once, like `Host: www.bluepizza.com`, is later referred to by a small number instead of being written out again.
-* **Browsers use HTTP/2 only on encrypted connections.** The two sides agree to use it during the encryption setup, which is a later topic.
+## 64. QUIC and HTTP/3
 
-### How a Server Program Sees It
-The "one request" a server's code sees is a stream, not a connection. A library sorts the pieces before the code runs. In Node:
-
-```text
-kernel        one TCP connection: one stream of bytes
-                 |
-Node's http2  reads 9-byte header -> length, type, stream ID
-library       reads that many bytes, adds them to that stream's table:
-                 stream 1: headers "GET /menu"            complete
-                 stream 3: headers "GET /photo1.jpg"      complete
-                 stream 5: headers "POST /order", body... still arriving
-                 |
-              for each stream whose headers have arrived:
-                 builds req and res objects, calls the handler
-                 |
-your code     app.get("/menu", (req, res) => ...)   called once per stream
-```
-
-Going back out is the reverse. When the handler calls `res.write(...)` or `res.end(...)`, the library cuts the bytes into DATA pieces labeled with that stream's ID and mixes them onto the same connection with pieces from other handlers.
-
-So a handler is called once per request either way:
-
-* **HTTP/1.1**: once per request, read in order from one of up to 6 connections.
-* **HTTP/2**: once per stream, sorted out of one shared connection.
-
-Node's usual `http` module, which Express is built on, speaks only HTTP/1.1. HTTP/2 needs Node's separate `http2` module, which provides the same kind of `req` and `res` objects. How well Express works on top of it is not checked. Often a Node server stays on HTTP/1.1, and a server placed in front of it speaks HTTP/2 to browsers.
-
-### The Next Problem
-All 11 streams travel inside one TCP connection. Say one cable frame carrying a piece of photo 2 is lost. TCP gives the program bytes only in order, with no gaps. What happens to the pieces of photo 1 that arrived right after the lost frame?
-
----
-
-## 90. One Lost Frame Stops Every Stream
-
-### What Happens
-Photo 1's pieces wait, even though they have nothing to do with photo 2.
-
-```text
-cable frames, in TCP byte order:
-  frame 20   bytes of a photo 2 piece (stream 5)     lost
-  frame 21   bytes of a photo 1 piece (stream 3)     arrives
-  frame 22   last bytes of photo 1 (stream 3)        arrives
-```
-
-1. The browser's kernel receives frames 21 and 22. It holds them, because frame 20's bytes come first and are missing (rule 2).
-2. The browser's `read()` returns nothing past frame 19. Photo 1 is complete in kernel memory, but the browser cannot get to it.
-3. The server's kernel gets no ack for frame 20 and resends it, at least one round trip later and often 200 ms or more.
-4. Frame 20 arrives. Now `read()` returns 20, 21 and 22 at once, and photo 1 shows.
-
-The HTTP/2 labels cannot help, because they are inside the bytes, and TCP will not hand over any bytes past the gap. TCP does not know about streams. It only knows one line of numbered bytes.
-
-### What It Costs
-On a good cable, losses are rare, so this hardly matters. On weak Wi-Fi or a phone network, where for example 2 of every 100 frames are lost, every loss stops all 100 streams. Then HTTP/1.1 with 6 connections can be faster than HTTP/2, because a loss on one connection stops only that one.
-
-### Name
-This is the same problem as in section 88: everyone waits behind the first in line. It is called **head-of-line blocking**. HTTP/2 removed it at the HTTP level, but it is still there at the TCP level, underneath.
-
-### The Next Problem
-The fix would be for the transport to keep order per stream instead of per connection, so a gap in stream 5 holds back only stream 5. But TCP's rules live in every kernel in the world, and many routers and home boxes in between also expect frames to be exactly TCP or UDP. How could a browser get a new transport without changing every kernel and every box in between?
-
----
-
-## 91. QUIC and HTTP/3
-
-### Build the Transport Inside the Program, on Top of UDP
-The browser cannot change TCP, but it can use UDP. UDP adds only ports and a checksum, and every kernel and every box in between already passes it, for example for DNS. Home boxes also make NAT rows for UDP, by port, the same as for TCP. So the new rules are written as code inside the browser and inside the server program, and their bytes travel as UDP data:
+The fix is a transport that keeps order per stream. The browser cannot change TCP: its rules live in every kernel, and boxes in between expect exactly TCP or UDP. But it can use UDP, which adds only ports and a checksum, passes every kernel and box already, and gets NAT rows by port like TCP. So the new rules are code inside the browser and the server program, carried as UDP data:
 
 ```text
 HTTP/2:  [MAC][IP, protocol 6 ][TCP group               ][HTTP/2 pieces][CRC]
@@ -3889,155 +1402,58 @@ HTTP/3:  [MAC][IP, protocol 17][UDP group][QUIC group   ][QUIC pieces  ][CRC]
                                 ports only  numbering, acks: done by the program
 ```
 
-To every router and box, this is just a UDP datagram.
+To every router and box it is just a UDP datagram. The program does all of TCP's work itself (sections 22 to 26): numbering, acks, resending, both windows and the handshake. The difference: each stream counts its own byte positions ("stream 5, bytes 32768 to 34167"), so a lost datagram of photo 2 holds back only stream 5, and photo 1's datagrams go to the browser at once.
 
-### What the Program Does Itself
-All of TCP's rules: numbering, acks, resending, the room window, the congestion window and the handshake. They are the same ideas as sections 71 to 75, but the code lives in the program, not the kernel.
+It also survives an address change. A TCP connection is identified by the four values, so when a phone moves from Wi-Fi to the mobile network, every TCP connection breaks. QUIC puts its own connection number in every datagram, so the server recognizes the phone at its new address.
 
-### The Important Difference: Order Per Stream
-Each stream counts its own byte positions. A piece is labeled "stream 5, bytes 32768 to 34167" instead of only a connection-wide number.
+The costs: the program does work the kernel used to do, so it uses more processor time. Some networks block UDP except port 53, and then the browser falls back to TCP and HTTP/2. A server announces HTTP/3 with a header in an earlier HTTP/2 reply, and the browser tries it on the next connection.
 
-```text
-datagram 20   stream 5, photo 2 bytes     lost
-datagram 21   stream 3, photo 1 bytes     arrives -> given to the browser right away
-datagram 22   stream 3, photo 1 end       arrives -> photo 1 shows
-... datagram 20's bytes are resent; only stream 5 waited
-```
-
-### One More Thing It Fixes
-A TCP connection is identified by the four values. When a phone moves from Wi-Fi to the mobile network, its IP changes, so every TCP connection breaks and has to start over. QUIC puts its own connection number in every datagram, so the server recognizes the phone at its new address and carries on.
-
-### Costs
-* The program does work the kernel used to do, so it uses more processor time.
-* Some networks block UDP except port 53. The browser then falls back to TCP and HTTP/2. A server tells the browser it supports HTTP/3 with a header in an earlier HTTP/2 reply, and the browser tries it on the next connection.
-
-### Names
-The new transport is **QUIC**. It started as an abbreviation, but now it is just a name. HTTP's rules on top of QUIC are **HTTP/3**. The request and reply meanings, `GET`, `/menu`, `200`, headers and body, are the same in HTTP/1.1, HTTP/2 and HTTP/3. Only how they are cut up and carried changes.
-
-### Who Uses It
-All major browsers (Chrome, Firefox, Safari, Edge) support HTTP/3. Google (Search, YouTube), Meta (Facebook, Instagram) and websites served through Cloudflare use it. Surveys from around 2024 to 2025 put it at roughly a third of popular websites (current figure not checked).
-
-To see it: in Chrome's developer tools, Network tab, right-click the column headers and turn on "Protocol". Requests to google.com or youtube.com usually show `h3`, which means HTTP/3. Others show `h2` or `http/1.1`.
-
-### Why the Effort
-Google and Meta serve billions of people, many on phones with weak signals where frames are often lost, which is the case from section 90. A small saving per page, multiplied by billions of page loads a day, is large. Google published measurements in 2017 from its switch: search results loaded about 8% faster on desktop and 3.6% faster on phones, and YouTube videos paused to load about 15 to 18% less often.
-
-For a small website on a good connection, the difference between HTTP/1.1, 2 and 3 is small, which is why HTTP/1.1 still works fine for many sites.
-
-### The Next Problem
-Every byte so far, including the order `item=margherita&count=1` and every header, travels as readable bytes through the air and through many routers owned by different companies. Anyone on the same Wi-Fi channel can receive the frames (section 42), and any router on the path can read them. How can the browser and the server make the bytes unreadable to everyone except each other?
+The transport is **QUIC** (it started as an abbreviation, now it is just a name), and HTTP on top of it is **HTTP/3**. `GET`, `/menu`, `200`, headers and body mean the same in HTTP/1.1, 2 and 3. Only how they are cut up and carried changes. In Chrome's developer tools, Network tab, the "Protocol" column shows `h3` or `h2`. For a small website on a good connection the difference is small, which is why HTTP/1.1 still works fine for many sites.
 
 ---
 
-## 92. A Proxy in Front of the Website
+# Part 8: Proxies and Load Balancers
 
-Encryption, the question at the end of section 91, is skipped for now. It is a long topic of its own.
+A computer between the browser and the website: reverse and forward proxies, L4 and L7 load balancing, and keep-alive.
 
-### The Problem
-bluepizza's website runs on one computer at `198.51.100.7`. At lunch time, 50,000 browsers connect at once, and one computer cannot handle them all. The shop adds three more computers with the same website. But DNS gives browsers one address, and every browser connects to that one address. How can the requests be spread across all four computers?
+---
 
-### A Program in Front
-Put one more computer, P, at `198.51.100.7`, and give the four website computers private addresses behind it (section 58). P is the only one browsers ever connect to. It takes each request and passes it to one of the four.
+## 65. A Proxy in Front of the Website
+
+Parts 8 and 9 use plain HTTP. Encryption comes in Part 10.
+
+At lunch time, 50,000 browsers connect to bluepizza's one website computer at `198.51.100.7`, too many for it. The shop adds three more computers with the same website, but DNS gives one address and every browser connects to it.
+
+**A program in front.** Put one more computer, P, at `198.51.100.7`, and give the four website computers private addresses behind it (section 49). P has two sockets like any router (section 48), but runs a program that reads HTTP:
 
 ```text
                                         shop's local network 10.0.0.x
 browser ---- ... ---- [P] 198.51.100.7 | 10.0.0.1 ---- switch ---- web1 10.0.0.11
-                      two sockets, like the home box   |---- web2 10.0.0.12
+                                                       |---- web2 10.0.0.12
                                                        |---- web3 10.0.0.13
                                                        |---- web4 10.0.0.14
 ```
 
-P has two sockets, one toward the internet provider and one in the shop's local network, the same as any router (section 57). The difference is that P runs a program that reads HTTP.
+1. The browser looks up `www.bluepizza.com`, gets `198.51.100.7`, does a TCP handshake with P on port 80, and sends `GET /menu`.
+2. P's program reads until the empty line, so it has the whole request (section 59).
+3. P picks one of the four, say web2, opens its **own** TCP connection from `10.0.0.1 : 51000` to `10.0.0.12 : 80`, and sends the same request with one extra header, `X-Forwarded-For: 203.0.113.10`, which tells web2 the browser's real address (section 69).
+4. web2 replies to P, and P writes the same bytes to the browser on the first connection.
 
-### One Request, Step by Step
-1. The browser looks up `www.bluepizza.com`, gets `198.51.100.7`, and does a TCP handshake with P on port 80. It sends:
+There are two separate connections, each with its own handshake, sequence numbers and windows: browser `203.0.113.10 : 40001` to P `198.51.100.7 : 80`, and P `10.0.0.1 : 51000` to web2 `10.0.0.12 : 80`. A router or NAT box reads MAC and IP (and ports for NAT) and passes the browser's frames through. P reads the whole request, ends the browser's connection, opens its own, and can choose by path, for example `/order` to web4. Because it opens its own connection, it can even speak HTTP/2 to the browser and HTTP/1.1 to web2: the "server placed in front" from sections 61 and 62.
 
-   ```text
-   GET /menu HTTP/1.1\r\n
-   Host: www.bluepizza.com\r\n
-   \r\n
-   ```
+A program that receives requests and sends them on for someone else is a **proxy**. One in front of the servers, on the website owner's side, is a **reverse proxy**. The browser does not know it exists and thinks P is the website. A common program for this is nginx.
 
-2. P's program reads until the empty line, so it has the whole request (section 86).
-3. P picks one of the four, say web2. It opens its **own** TCP connection, from `10.0.0.1 : 51000` to `10.0.0.12 : 80`, and sends the same request with one extra header:
+## 66. A Proxy Next to the Browsers
 
-   ```text
-   GET /menu HTTP/1.1\r\n
-   Host: www.bluepizza.com\r\n
-   X-Forwarded-For: 203.0.113.10\r\n
-   \r\n
-   ```
+A school wants all 500 students' browsers to go through one computer of its own, F, so it can block some websites and keep copies of popular pages. F sits in the school's local network next to the browsers (`10.1.0.5`, port 3128). Each browser is set to use it: in Ubuntu, Settings -> Network -> Network Proxy, or pushed by the school automatically. So students cannot just remove the setting, the school's router drops frames from student computers to port 80 unless they go to F.
 
-   web2 only sees P's address on its connection. This header tells it which address the browser really came from, for example to keep a log.
-4. web2 replies to P. P's program reads the reply and writes the same bytes to the browser on the first connection.
+1. The student types `www.bluepizza.com/menu`. With the proxy setting on, the browser does **not** look up the name. It connects to F and sends `GET http://www.bluepizza.com/menu HTTP/1.1`, with the full address in the request line so F knows which website to go to.
+2. If the name is on F's block list, F replies `403 Forbidden` at once and never contacts the website.
+3. If F has a stored copy that the website's reply allowed to be kept and whose time limit has not passed (the same kind of limit as the browser's own copies, section 61), F replies from it.
+4. Otherwise F looks up the name, opens its **own** connection to `198.51.100.7 : 80`, sends the request with the normal `/menu` path, stores a copy of the reply, and passes the reply on.
 
-### Two Separate Connections
-Each has its own handshake, sequence numbers and windows:
+The website only ever sees the school's public address.
 
-```text
-browser (203.0.113.10 : 40001)  <-- connection 1 -->  P (198.51.100.7 : 80)
-P (10.0.0.1 : 51000)            <-- connection 2 -->  web2 (10.0.0.12 : 80)
-```
-
-### How This Differs From a Router or NAT
-```text
-                         router / NAT box                 P
-reads                    MAC, IP (+ ports for NAT)        the whole HTTP request
-TCP connection           passes the browser's frames      ends the browser's connection,
-                         through, one by one              opens a new one of its own
-can choose by path       no                               yes, e.g. /order -> web4
-```
-
-Because P reads the HTTP request and opens its own connection, the two sides do not even need the same HTTP version. P can speak HTTP/2 to the browser and HTTP/1.1 to web2. That is the "server placed in front" from sections 88 and 89.
-
-### Names
-A program that receives requests and sends them on for someone else is a **proxy**. One that sits in front of the servers, on the website owner's side, is a **reverse proxy**. The browser does not know it exists. It thinks P is the website. A common program for this is nginx.
-
-How P picks among the four is the load balancer topic, which comes next.
-
-### The Next Problem
-Now the other side. A school wants all 500 students' browsers to go through one computer of its own, so it can block some websites and keep copies of popular pages. That computer sits next to the browsers, not next to the website. What changes?
-
----
-
-## 93. A Proxy Next to the Browsers
-
-### The Setup
-The school's computer F sits in the school's local network. Every browser is set to send its requests to F instead of to the websites.
-
-```text
-school local network 10.1.0.x
-student 10.1.0.23 ---- switch ---- [F] 10.1.0.5, port 3128 ---- school router ---- ... ---- 198.51.100.7
-student 10.1.0.24 ----/
-```
-
-### How a Browser Knows to Use F
-It is a setting. In Ubuntu: Settings -> Network -> Network Proxy, with address `10.1.0.5` and port `3128`. The school can also push this setting to its computers automatically. To stop students from just removing the setting, the school's router drops any frame from a student computer to port 80 unless it is going to F.
-
-### One Request, Step by Step
-1. The student types `www.bluepizza.com/menu`. Because the proxy setting is on, the browser does **not** look up the name itself. It connects to F at `10.1.0.5 : 3128` and sends:
-
-   ```text
-   GET http://www.bluepizza.com/menu HTTP/1.1\r\n
-   Host: www.bluepizza.com\r\n
-   \r\n
-   ```
-
-   The request line holds the full address, not just `/menu`, because F needs to know which website to go to.
-
-2. F checks its block list. If the name is on it, F replies right away and never contacts the website:
-
-   ```text
-   HTTP/1.1 403 Forbidden\r\n
-   ...
-   ```
-
-3. F checks its stored copies. If it has a copy of this page that the website's reply allowed to be kept and the time limit has not passed (the same kind of time limit the browser uses for its own copies, section 88), F replies from the copy. The website is never contacted.
-4. Otherwise, F looks up `www.bluepizza.com` with DNS, opens its **own** TCP connection to `198.51.100.7 : 80`, sends the request with the normal `/menu` path, reads the reply, stores a copy, and sends the reply to the student.
-
-The website only ever sees connections from the school's public address, never from the students.
-
-### Forward vs Reverse
 ```text
                   forward proxy (F)               reverse proxy (P)
 sits next to      the browsers                    the website's servers
@@ -4046,795 +1462,268 @@ who knows         browsers must be set to use it  browsers do not know it exists
 used for          blocking, copies, logging       spreading requests, one public address
 ```
 
-The mechanics are the same in both: read the HTTP request, open a separate TCP connection, pass the request on, and pass the reply back. The only difference is which side it serves. A proxy on the browsers' side is a **forward proxy**, or just "a proxy" in everyday speech.
+The mechanics are the same: read the HTTP request, open a separate connection, pass the request on and the reply back. A proxy on the browsers' side is a **forward proxy**, or just "a proxy" in everyday speech. With encryption, F can see the website's name but not the path or body (section 84).
 
-With encryption, F can see much less: the website's name, but not the path or the body. That comes with TLS.
+## 67. Picking a Server, and Skipping a Broken One
 
-### The Next Problem
-Back to the shop. P has four computers behind it. How should it pick one for each request, and what should it do if web3 is switched off?
+P holds the four addresses and picks one for every request.
 
----
+**Round robin:** P keeps a counter. Request 1 to web1, 2 to web2, 3 to web3, 4 to web4, 5 to web1 again. Its weakness: a menu request takes about 5 ms and a photo upload about 2 s, so web2 can get three uploads in a row while web1 sits idle.
 
-## 94. Picking a Server, and Skipping a Broken One
+**Least connections:** P opened every connection to the servers itself (section 65), so it knows how many are open to each (say 2, 9, 4, 3), and the next request goes to the one with the fewest, web1.
 
-### The Setup
-```text
-browser ---- ... ---- [P] 198.51.100.7 | 10.0.0.1 ---- switch ---- web1 10.0.0.11
-                                                              ---- web2 10.0.0.12
-                                                              ---- web3 10.0.0.13
-                                                              ---- web4 10.0.0.14
-```
-
-P holds a list of the four addresses. For every request it has to pick one.
-
-### Way 1: Take Turns
-P keeps a counter. Request 1 goes to web1, request 2 to web2, request 3 to web3, request 4 to web4, request 5 to web1 again, and so on. This is **round robin**.
-
-The weakness: requests do not cost the same. A menu request takes web2 about 5 ms, a photo upload about 2 s. With plain turns, web2 can get three uploads in a row while web1 sits idle.
-
-### Way 2: Pick the Least Busy
-P opened every connection to the four servers itself (section 92), so it knows how many are open to each one right now:
-
-```text
-web1  2 open
-web2  9 open
-web3  4 open
-web4  3 open
-```
-
-The next request goes to web1, the one with the fewest. This is **least connections**.
-
-### What Actually Happens When web3 Is Off
-P sends its SYN to `10.0.0.13 : 80`. What P sees depends on what is broken:
+**When web3 is off**, what P sees depends on what is broken:
 
 ```text
 what is broken                  what P's kernel sees                            what P's connect() gets
 computer switched off           no ARP reply, so no MAC to send to              fails after about 3 s ("no route to host")
-computer on, program stopped    web3's kernel sends RST (no listener, sec. 74)  fails right away ("connection refused")
+computer on, program stopped    web3's kernel sends RST (no listener, sec. 25)  fails right away ("connection refused")
 program running but stuck       handshake works, but no reply ever comes        P waits until its own time limit, e.g. 60 s
 ```
 
-If P does nothing about this, every fourth request fails or waits.
-
-### Checking Each Server Itself
-Every 5 seconds, P sends each server a small request of its own:
+Left alone, every fourth request fails or waits. So every 5 seconds P sends each server its own small request, `GET /health`, which the web program answers `200 OK` when it is working. Each check waits up to 2 seconds. After 3 failures in a row, P marks the server down and leaves it out:
 
 ```text
-GET /health HTTP/1.1\r\n
-Host: web3\r\n
-\r\n
+0 s     GET /health to web3     no answer by 2 s  -> fail 1
+5 s     GET /health to web3     no answer by 7 s  -> fail 2
+10 s    GET /health to web3     no answer by 12 s -> fail 3 -> web3 marked down
 ```
 
-The web program is written to answer `HTTP/1.1 200 OK` on `/health` when it is working. Each check waits up to 2 seconds for its answer. If 3 checks in a row get no 200, P marks the server as down and leaves it out of the turns:
+So P notices about 12 seconds after web3 went off. Any 200 resets the count, and after 2 good answers in a row a down server is put back. "In a row" matters because a single check can fail on a working server: busy with three uploads for 2.5 seconds, web3 answers after the 2-second limit, and the next check gets a normal 200. These requests are **health checks**, and 5 s, 2 s, 3 and 2 are example settings the shop chooses.
 
-```text
-time    check                       result
-0 s     GET /health to web3         no answer by 2 s  -> fail 1
-5 s     GET /health to web3         no answer by 7 s  -> fail 2
-10 s    GET /health to web3         no answer by 12 s -> fail 3 -> web3 marked down
-```
+A request already sent to web3 when it stopped: if it was a GET, P can send it to web4, because a GET must not change anything (section 60). If it was a POST to `/order`, P cannot know whether web3 saved the order, and sending it again could place it twice, so P returns an error.
 
-So P notices about 12 seconds after web3 went off. If any one of those checks gets a 200, the count goes back to 0. P keeps checking a down server, and after 2 good answers in a row puts it back.
+Spreading requests over several servers and skipping broken ones is **load balancing** ("load" is each server's amount of work). A machine that does it is a **load balancer**. P is a reverse proxy that also load balances.
 
-Why "in a row": a single check can fail while the server is fine. For example, web3 is busy with three photo uploads for 2.5 seconds, so its answer to `/health` arrives after the 2-second limit. The next check, 5 seconds later, gets a normal 200. Needing 3 failures in a row means only a problem that lasts across all three checks removes a server.
+## 68. A Load Balancer That Reads Less
 
-These requests are **health checks**. The 5 s, 2 s, 3 and 2 are example settings the shop chooses.
-
-### The Request That Was Already Going to web3
-A request was sent to web3 just before it stopped, and the connection failed. If it was a GET, P can send the same request to web4, because a GET must not change anything (section 87). If it was a POST to `/order`, P cannot know whether web3 already saved the order. Sending it again could place the order twice, so P returns an error to the browser instead.
-
-### Name
-Spreading requests over several servers and skipping broken ones is **load balancing**. "Load" is the amount of work each server has. A program or machine that does it is a **load balancer**. P is a reverse proxy that also does load balancing.
-
-### The Next Problem
-P reads every HTTP request up to the empty line before it can pick a server, and it holds two TCP connections for every browser. Could a load balancer pick a server using only the IP and TCP groups, without the HTTP part? What would it gain, and what could it no longer do?
-
----
-
-## 95. A Load Balancer That Reads Less
-
-### Holding vs Looking
-Every machine that passes frames on holds the whole frame in its memory. The difference between machines is which bytes they look at to decide, and whether they have to wait for more frames first.
-
-One frame carrying the start of a request, counting from the first byte of the MAC group, with a 20-byte TCP group:
+Every machine that passes frames on holds the whole frame. The difference is which bytes it looks at, and whether it must wait for more frames:
 
 ```text
 byte position in frame    what is there
 0 - 13                    MAC group
-26 - 29                   from IP
-30 - 33                   to IP
-34 - 35                   from port
-36 - 37                   to port
+26 - 29 / 30 - 33         from IP / to IP
+34 - 35 / 36 - 37         from port / to port
 54 - ...                  data: "GET /menu HTTP/1.1\r\n..."
 ```
 
-* **A router (section 16)** stores the whole frame and looks only at bytes 30–33, the to-IP. It sends the whole frame out, data included. The data bytes sit in memory and go out again, but nothing looks at them.
-* **P (section 92)** has its kernel take the data bytes out and give them to nginx. nginx collects data until it finds `0D 0A 0D 0A`, and only then picks a server.
+A router (section 11) looks only at bytes 30–33 and sends the whole frame out, data untouched. P's kernel hands the data to nginx, which collects it until `0D 0A 0D 0A` and only then picks a server.
 
-### The Idea
-Call the new machine Q. It replaces P at `198.51.100.7` and is the router for web1–web4, so their replies to the outside go through Q, the same way a laptop's frames go through the home box (section 23). Q looks only at the IP group and the TCP group: the four values from section 20.
+**The idea.** A new machine, Q, replaces P at `198.51.100.7` and is the router for web1–web4, so their replies go out through it, the way a laptop's frames go through the home box (section 15). Q looks only at the IP and TCP groups, the four values (section 25):
 
-### One Connection, Step by Step
 1. The browser `203.0.113.10 : 40001` sends a SYN to `198.51.100.7 : 80`.
-2. Q sees a SYN, so this is a new connection. It picks a server (section 94), say web2, and writes a row in its table:
+2. A SYN means a new connection, so Q picks a server (section 67), say web2, and writes a row: `203.0.113.10, 40001 -> 10.0.0.12`.
+3. Q changes the to-IP to `10.0.0.12` and recomputes the IP header checksum and the TCP checksum, which also covers both IPs. Ports, seq and data stay the same.
+4. web2's SYN+ACK comes from `10.0.0.12 : 80`, and Q changes the from-IP back to `198.51.100.7`. Otherwise the browser's kernel would find no matching connection and answer RST (section 26).
+5. Every later frame from `203.0.113.10 : 40001` matches the row and must go to web2, which holds this connection's sequence numbers. web4 would answer RST.
 
-   ```text
-   browser IP      browser port    server picked
-   203.0.113.10    40001           10.0.0.12  (web2)
-   ```
+There is **one** TCP connection, browser to web2. Q does no handshake. It changes addresses and passes frames on, plus a router's usual work (new MACs, TTL lowered by 1). It has one row per connection, made when a SYN arrives and removed after FIN, RST, or a long silence.
 
-3. Q changes the to-IP in the frame from `198.51.100.7` to `10.0.0.12` and sends it on. The TCP checksum also covers the two IP addresses, so Q recomputes it along with the IP header checksum. Nothing else changes: same ports, same seq, same data.
-4. web2's kernel answers with a SYN+ACK from `10.0.0.12 : 80`. Q changes the from-IP back to `198.51.100.7`. If it did not, the browser's kernel would get a frame from `10.0.0.12`, which matches none of its connections, and would answer with RST (section 75).
-5. Every later frame from `203.0.113.10 : 40001` matches the row and goes to web2. It has to: web2's kernel holds this connection's seq numbers, and web4 would answer RST.
+**Q does not wait.** Q decides from bytes inside each frame, so it sends each frame on before the next arrives. With a request split over 3 frames 1 ms apart, Q sends them at 0, 1 and 2 ms. P sends nothing until frame 3 brings `0D 0A 0D 0A`.
 
-There is only **one** TCP connection, between the browser and web2. Q does not do the handshake itself. It changes addresses and passes frames along. As the router for web1–web4, it also does a router's usual work: new MACs, TTL lowered by 1.
+**P builds new frames, Q does not.** At P, the kernel copies each browser frame's data bytes into the connection's memory, acks the browser, and frees the frame. nginx `read()`s the bytes and `write()`s them on its second connection, and the kernel builds new frames with new MAC, IP and TCP groups: from `10.0.0.1 : 51000` instead of the browser, to web2 instead of P, P's own sequence numbers, and the same request plus `X-Forwarded-For`. The HTTP lines are data bytes, so they go on to web2. What P drops is the browser frame's MAC, IP and TCP groups, and three frames in can go out as two, since the kernel packs bytes into frames of up to 1460 (the MSS). Q changes a few bytes in the frame it received and sends that same frame.
 
-Q's table has one row per connection. A row is made when a SYN arrives from outside, and removed when the connection ends with FIN or RST, or after no frames have passed for a long time:
+**What Q gains:** little work per frame (one lookup, one rewrite, no reading up to an empty line, no second connection, no copying into a program), it works for any TCP program, not only HTTP (for example a database on port 5432), and web2 sees the browser's real address, so no `X-Forwarded-For`. **What Q loses:** it never sees the path, so it cannot send `/order` to web4. It picks once per connection, so 100 requests on one open connection (section 59) all go to web2. It cannot resend a GET elsewhere, since it does not know where requests start and end. And it cannot speak HTTP/2 to the browser and HTTP/1.1 to web2.
 
-```text
-browser IP      browser port    server picked
-203.0.113.10    40001           10.0.0.12  (web2)
-203.0.113.10    40002           10.0.0.14  (web4)
-198.18.5.9      61200           10.0.0.11  (web1)
-```
-
-### Q Does Not Wait; P Does
-Q decides what to do with a frame using only the bytes inside that same frame, so it sends the frame out before the next one arrives. Say a request is split over 3 frames, arriving 1 ms apart:
+**Q vs a router and vs NAT:**
 
 ```text
-time    arrives     Q                                    P
-0 ms    frame 1     sends frame 1 to web2                keeps the data, sends nothing
-1 ms    frame 2     sends frame 2 to web2                keeps the data, sends nothing
-2 ms    frame 3     sends frame 3 to web2                finds 0D 0A 0D 0A, picks web2, starts sending
+                       router (R, section 11)           Q                                   home box NAT (section 50)
+looks at               to-IP only (layer 3)             both IPs and ports (layer 4)        both IPs and ports
+the to-IP              names the final computer         Q's own address: "the shop"         the box's own address
+changes                nothing                          to-IP in, from-IP out               from-IP and port out
+rows                   one per address range,           one per connection, made by Q       one per connection, made by
+                       typed or automatic (sec. 12)     when a SYN arrives from outside      the laptop's first frame out
+chooses a computer?    no                               yes, one of web1-web4               no: the laptop chose
+no matching row        -                                SYN gets a new row and server       dropped (section 51)
 ```
 
-Q can send frame 1 at 0 ms because what it needs, the two IPs and two ports, is in frame 1's own bytes. P cannot, because the end of the request is only in frame 3.
+So Q is close to NAT running the other way round, plus choosing which inside computer gets each new connection.
 
-### P Builds New Frames, Q Does Not
-The browser's frames never leave P. In order:
+**Names**, from the layer numbers in section 31: P is an **L7 load balancer** (reads up to HTTP, picks once per request, two connections). Q is an **L4 load balancer** (reads up to the TCP group, picks once per connection, one connection). NAT also reads up to layer 4 but is just called NAT. nginx is usually set up as L7. The Linux kernel has an L4 balancer called IPVS. On AWS, the "Network Load Balancer" is L4 and the "Application Load Balancer" is L7. Large sites often use both: L4 machines in front, each sending connections to several L7 machines.
 
-1. A frame from the browser arrives at P. P's kernel takes its data bytes (`GET /menu ...`) and copies them into a memory area the kernel keeps for this one connection.
-2. P's kernel sends an ack to the browser.
-3. The memory that held the frame is freed. Only the data bytes remain, in the connection's memory area.
-4. nginx calls `read()`. The kernel copies the data bytes from the connection's memory area into nginx's own memory.
-5. nginx calls `write()` on its second connection. P's kernel puts those bytes into new frames with new MAC, IP and TCP groups and sends them to web2.
+## 69. What P Does With the Bytes
 
-```text
-                   frame from browser into P        new frame from P to web2
-from IP            203.0.113.10                     10.0.0.1
-to IP              198.51.100.7                     10.0.0.12
-from port          40001                            51000
-to port            80                               80
-seq                browser's numbers                P's own numbers, from its own handshake with web2
-data               GET /menu ... Host ...           same request, plus the X-Forwarded-For line
-```
+**X-Forwarded-For.** web2's connection is with P, so its kernel reports every request as coming from `10.0.0.1`. The shop's program may need the real address, for example for logs or to refuse an address sending 1000 requests a second. P knows it, so it adds `X-Forwarded-For: 203.0.113.10` before sending the request on. A browser can write its own line with any address. nginx then appends the real one, `X-Forwarded-For: 1.2.3.4, 203.0.113.10`, so web2 should trust only the last address, the one P wrote. "X-" was the old way to mark a header not in the official HTTP rules. Q does not need it, since web2 sees the real from-IP.
 
-The HTTP request line and headers are part of the data bytes, so they go on to web2. What P drops is the browser frame's MAC, IP and TCP groups. The number of frames can differ too: three frames in can go out as two, because P's kernel packs the bytes nginx wrote into frames of up to 1460 data bytes (the MSS).
+**The reply** comes back the way the request went. nginx holds both connections open and writes web2's reply on the second into the first, and the browser gets it on the connection it sent the request on.
 
-Q never builds a frame. It changes a few bytes in the frame it received and sends that same frame out.
+**nginx's settings** are lines in a text file, `/etc/nginx/nginx.conf`, each a name and a value ending in `;`. A missing line means the default value.
 
-### What Q Gains
-* Little work per frame: one table lookup and one address rewrite. It does not read up to an empty line, open a second connection, or copy bytes into a program.
-* It works for any program on TCP, not only HTTP, for example a database on port 5432.
-* web2 sees the browser's real address as the from-IP, so no `X-Forwarded-For` is needed.
-
-### What Q Can No Longer Do
-* It cannot send `/order` to web4, because it never sees the path.
-* It picks once per connection, not once per request. If one browser sends 100 requests on one open connection (section 86), all 100 go to web2.
-* If web2 stops in the middle, Q cannot resend a GET to another server. It does not know where one request starts and ends.
-* It cannot speak HTTP/2 to the browser and HTTP/1.1 to web2, because it is not speaking HTTP at all.
-
-### How Q Differs From a Router
-```text
-                       router (R, section 16)                  Q
-looks at               to-IP only (layer 3)                    both IPs and both ports (layer 4)
-the to-IP already      names the final computer;               is Q's own address, 198.51.100.7;
-                       R only finds the cable toward it        Q decides which computer gets it
-changes IP or ports    never                                   to-IP on the way in, from-IP on the way out
-table rows             one per address range                   one per TCP connection
-rows made by           a person, or the automatic messages     Q itself, when a SYN arrives
-                       (section 17)
-```
-
-A frame reaching R already says which computer it is for, so R only moves it closer. A frame reaching Q says `198.51.100.7`, which only means "the shop". Q picks web1, web2, web3 or web4 and writes that address into the frame.
-
-### How Q Differs From NAT in the Home Box
-NAT (section 59) also looks at the IP and TCP groups, because it uses ports. The difference is which way connections start, and whether there is a choice:
-
-```text
-                       home box (NAT)                         Q
-connection starts      from inside (your laptop)              from outside (a browser)
-row created when       laptop's first frame goes out          browser's SYN comes in
-bytes it changes       from-IP and from-port of outgoing      to-IP of incoming
-does it choose?        no: the laptop decided where to go     yes: picks one of web1-web4
-no matching row        incoming frame dropped (section 60)    SYN gets a new row and a server
-```
-
-So Q is close to NAT running the other way round. The new part is that Q picks which inside computer gets each new connection.
-
-NAT is a step in the router part of the home box, at its WAN side (section 57). It is not a separate chip or socket. Most home boxes are a small computer running Linux, and the NAT table lives in that kernel's memory, next to the router's rows:
-
-```text
-laptops ~~~ [access point] -- switch -- (LAN side) router [NAT] (WAN side) ---- company's router
-```
-
-```text
-going out (laptop -> website)
-1. router part reads to-IP 198.51.100.7, decides: out of the WAN socket
-2. NAT changes from 192.168.1.23 : 50001 to 203.0.113.10 : 40001, writes the row
-3. frame leaves the WAN socket
-
-coming in (website -> laptop)
-1. frame arrives at the WAN socket, to 203.0.113.10 : 40001
-2. NAT finds row 40001, changes to-IP and to-port to 192.168.1.23 : 50001
-3. router part reads the new to-IP 192.168.1.23, decides: LAN side, to the switch
-```
-
-Coming in, NAT has to run before the router part. Before the change, the to-IP is the box's own address, and the router part would not know which laptop the frame is for.
-
-### Names
-From the layer numbers in section 80:
-
-```text
-                     looks at up to         picks a server       TCP connections
-L4 load balancer     TCP group (layer 4)    once per connection  one, browser <-> server
-L7 load balancer     HTTP part (layer 7)    once per request     two, browser <-> P, P <-> server
-```
-
-P is an **L7 load balancer**, and Q is an **L4 load balancer**. NAT also looks at up to layer 4, but people just call it NAT, not "L4 NAT".
-
-nginx is usually set up as L7. The Linux kernel has an L4 balancer called IPVS. On AWS, the "Network Load Balancer" is L4 and the "Application Load Balancer" is L7. Large sites often use both: L4 machines in front, each sending connections to several L7 machines.
-
----
-
-## 96. What P Does With the Bytes
-
-### What web2 Knows About the Browser
-web2's connection is with P, not the browser. When web2's program asks its kernel who the connection is from, the answer is `10.0.0.1`, P, for every request from every customer. The shop's program may need the real address, for example to write it in a log, or to refuse an address that sends 1000 requests a second.
-
-P knows the real address because the browser's connection is with P. So before sending the request on, P adds one header:
-
-```text
-GET /menu HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-X-Forwarded-For: 203.0.113.10\r\n     <- added by P
-\r\n
-```
-
-A browser can write its own `X-Forwarded-For` line with any address it likes. If one is already there, nginx does not replace it. It adds the real address at the end: `X-Forwarded-For: 1.2.3.4, 203.0.113.10`. So web2's program should trust only the last address, the one P wrote.
-
-The "X-" at the start was the old way to mark a header that is not in the official HTTP rules. Q does not need this header, because it changes only the to-IP, and web2 sees the browser's real address as the from-IP.
-
-### How the Reply Gets Back
-The browser's connection to P stays open the whole time. nginx holds two connections at once. When web2's reply arrives on the second, nginx writes it into the first:
-
-```text
-browser ==conn 1==> P ==conn 2==> web2      request goes right
-browser <==conn 1== P <==conn 2== web2      reply comes back the same way
-```
-
-The browser only ever talks to P, so the reply reaches it on the connection it sent the request on.
-
-### nginx's Settings File
-nginx reads its settings from a text file, `/etc/nginx/nginx.conf`. Each setting is one line with a name and a value, ending in `;`. If a line is missing, nginx uses a default value.
-
-### A Large Request Body
-nginx needs only the headers, up to `0D 0A 0D 0A`, to pick web2. For the body it has two ways:
+**A large request body.** nginx needs only the headers to pick web2. For the body it has two ways, set by `proxy_request_buffering on;` (way 1, the default) or `off;` (way 2):
 
 ```text
 way 1 (default)   keep the whole body first, then send it to web2
+                  (first 16 KB in memory on a 64-bit machine, the rest in a file on P's disk)
 way 2             send each part of the body to web2 as soon as it arrives
 ```
 
-In way 1, nginx does not keep a large body in memory. It keeps the first 16 KB in memory (on a 64-bit machine) and writes the rest to a file on P's disk. Once the last byte has arrived, it reads the file back and sends it to web2.
+`client_max_body_size` limits the body, and without it nginx refuses anything over 1 MB with `413 Request Entity Too Large`. A shop accepting 5 GB uploads must raise it.
 
-The setting line:
+Way 1 is the default because the web program often handles only a few requests at a time. Say web2 runs 4 copies of the shop's program, each handling one request start to end and doing nothing else while reading a body. A phone uploads 50 MB at 1 MB/s. With way 2, one copy is busy for 50 s, and 4 slow phones block every menu request. With way 1, nginx takes 50 s receiving, then sends it over the shop's 1 Gbit/s cable (about 125 MB/s), so one copy is busy for about 0.4 s. nginx can afford the wait because one nginx process handles thousands of connections: it asks the kernel which ones have new bytes, handles them, and asks again, never waiting on one connection. A second reason: if web2 fails partway, nginx still has the full body and can send it to another server (section 67). If the web program works like nginx (Node.js does), the first reason matters less. For very large uploads like 5 GB, writing everything to disk first costs time and space, so shops use way 2 for that path or upload straight to separate storage.
 
-```text
-proxy_request_buffering on;     <- way 1 (used if the line is missing)
-proxy_request_buffering off;    <- way 2
-```
-
-There is also a size limit line, `client_max_body_size`. If it is missing, nginx refuses any body over 1 MB and replies `413 Request Entity Too Large`. A shop that accepts 5 GB uploads has to raise that limit first.
-
-### Why Way 1 Is the Default
-The shop's web program on web2 often can work on only a few requests at a time, and a slow upload would keep one of them busy for a long time.
-
-Say web2 runs 4 copies of the shop's program (4 processes). Each copy handles one request from start to end: it reads the body, does the work, and sends the reply. While it reads a body, it does nothing else. A phone uploads a 50 MB photo at 1 MB per second, so the upload takes 50 s:
+**The reply going back.** A **buffer** is memory where bytes wait before being sent on. web2 has a 1 MB reply for a phone that takes 100 KB/s, so the phone needs 10 s:
 
 ```text
-way 2 (send as it arrives)            way 1 (nginx keeps it first)
-bytes reach web2 at 1 MB/s            nginx receives all 50 MB over 50 s
-one copy busy for 50 s                then sends 50 MB over the shop's 1 Gbit/s cable
-                                      (about 125 MB/s), so about 0.4 s
-4 slow phones -> all 4 copies busy,   one copy busy for 0.4 s
-menu requests wait
+proxy_buffering on;  (default)   takes bytes from web2 as fast as web2 sends, keeps what the     web2 busy about 8 ms
+                                 phone has not taken in buffers (and a disk file if needed),
+                                 sends to the phone as soon as it has bytes
+proxy_buffering off;             takes bytes from web2 only as fast as the phone takes them      web2 busy about 10 s
 ```
 
-nginx can afford the 50 s wait and web2 cannot, because nginx is written differently. One nginx process works on thousands of connections: it asks the kernel which connections have new bytes, handles those bytes, and goes back to asking. It never sits waiting on one connection, so a slow phone costs it only some disk space.
+The two settings share a word but differ. For the request, "buffering" waits for the whole body, because that gives web2 one fast burst and allows resending. For the reply, it does not wait for everything, because waiting gains nothing: web2 is free either way and the phone would only start later. It means web2 does not wait for the slow phone. One side effect (section 73): with `proxy_buffering on`, a small part of a reply, say 30 bytes, can sit in nginx's buffer instead of reaching the browser at once.
 
-A second reason, from section 94: if web2 fails partway, nginx still has the full body and can send the same request to another server.
+## 70. One Reply per Request, and Keeping the Connection Open
 
-If the web program itself works the way nginx does (Node.js does), the first reason matters less. For very large uploads like 5 GB, writing everything to disk first costs time and disk space, so shops usually use way 2 for that path, or let browsers upload straight to separate storage.
+**One reply per request is HTTP's rule.** TCP only carries bytes both ways (section 59). HTTP adds that the server must send exactly one response for each request. TCP does not enforce it: a program on web2 that never replies just breaks HTTP's rules. DNS and HTTP are both layer 7 protocols whose rules cover only their data: DNS in UDP datagrams, HTTP in a TCP byte stream (or QUIC in HTTP/3). HTTP/1.1 matches replies to requests by order (section 61), HTTP/2 by stream ID (section 62).
 
-### The Reply Going Back
-A **buffer** is a piece of memory where bytes wait before they are sent on.
+**Time limits.** HTTP gives no number, so each program sets its own. nginx waits up to 60 s for web2 by default. If web2 refuses the connection (RST), nginx answers the browser `502 Bad Gateway`. If web2 sends nothing for 60 s, `504 Gateway Timeout`. If a connection closes before any reply, the browser shows an error page, in Chrome `ERR_EMPTY_RESPONSE`.
 
-Say web2 has a 1 MB reply for a phone. web2 can send it to nginx at about 125 MB/s over the shop's cable. The phone can take only 100 KB/s, so it needs 10 s.
-
-```text
-setting                 what nginx does                                   web2's program is busy for
-proxy_buffering on;     takes bytes from web2 as fast as web2 sends,      about 8 ms
-(default)               keeps what the phone has not taken yet in
-                        buffers (and a disk file if they do not fit),
-                        sends to the phone as soon as it has bytes
-
-proxy_buffering off;    takes bytes from web2 only as fast as the        about 10 s
-                        phone takes them, keeps nothing extra
-```
-
-The two settings use the same word but do not behave the same way:
-
-```text
-proxy_request_buffering on    (phone -> web2)   sends nothing to web2 until the whole body has arrived
-proxy_buffering on            (web2 -> phone)   starts sending to the phone as soon as bytes arrive,
-                                                and takes bytes from web2 faster than the phone can
-```
-
-For the reply, "buffering" does not mean "wait for everything". It means nginx does not make web2 wait for the slow phone. The difference comes from what waiting gains:
-
-* **Request**: having the whole body before contacting web2 means web2 gets it in one fast burst, and nginx can resend it to another server.
-* **Reply**: waiting for the whole reply before sending gains nothing. web2 is already free either way, and the phone would only start receiving later.
-
-One side effect matters later (section 101): with `proxy_buffering on`, a small part of a reply, say 30 bytes, can sit in nginx's buffer instead of going to the browser right away.
-
----
-
-## 97. One Request, One Reply
-
-### It Is HTTP's Rule
-TCP only carries bytes in both directions (section 85). HTTP adds the rule: the server must send exactly one response for each request. TCP does not enforce it. If the program on web2 never writes a reply, nothing at the TCP level complains. The program just broke HTTP's rules.
-
-DNS (section 83) and HTTP are both layer 7 protocols. Each one's rules cover only the bytes in the data part: DNS in UDP datagrams, HTTP in a TCP byte stream (or QUIC in HTTP/3).
-
-### Matching a Reply to Its Request
-* **HTTP/1.1**: replies on a connection come back in the same order as the requests. The first reply is for the first request, and so on. There is no ID (section 88).
-* **HTTP/2**: the reply carries the same stream ID as its request (section 89).
-
-### Time Limits
-HTTP's rules give no number. Each program sets its own limit. nginx waits up to 60 s for web2 by default:
-
-```text
-web2 refuses the connection (RST)       nginx replies 502 Bad Gateway to the browser
-web2 sends nothing for 60 s             nginx replies 504 Gateway Timeout to the browser
-```
-
-If a connection closes before any reply arrives, the browser shows an error page. Chrome shows `ERR_EMPTY_RESPONSE`. How long a browser itself waits for a reply before giving up: not checked.
-
----
-
-## 98. Keeping the Connection Open
-
-### What It Means
-When a page first loads, the browser opens a TCP connection with the handshake (SYN, SYN+ACK, ACK). After the first reply, the browser does not send FIN (section 86). Both kernels keep their records for the connection: the four values, the seq numbers and the window. The next request is written into that same open connection, with no new handshake:
+**Keeping the connection open.** After the first reply, the browser sends no FIN. Both kernels keep the connection's record, and the next request goes on it without a new handshake:
 
 ```text
 0 s     SYN, SYN+ACK, ACK         connection opened once
 0 s     GET /order/57/status  ->  reply
 5 s     GET /order/57/status  ->  reply      same connection, no handshake
-10 s    GET /order/57/status  ->  reply      same connection, no handshake
 ```
 
-Once the connection is closed, by either side, the next request needs a new connection, and that starts with a new handshake.
+Once either side closes it, the next request needs a new connection and handshake. HTTP controls this with one header. `Connection: close` means "after this reply, this connection will be closed". `Connection: keep-alive` means "keep it open". HTTP/1.0 closes after each reply unless the request says keep-alive. HTTP/1.1 stays open unless either side says close, so the header usually appears only when someone wants to close. Staying open needs each reply to mark its end, with `Content-Length` or chunks (section 73), otherwise closing is the only end marker (method 3, section 32).
 
-### The Connection Header
-It is part of HTTP through one header, `Connection`:
+**Who calls `close()`.** The kernel never reads HTTP. The program reads the header and calls `close()` after writing the full reply, and then the kernel sends FIN. If the browser's request has `Connection: close`, the server writes the full reply and closes. The browser reads it, then `read()` returns 0 and it closes too. If the server's reply has `Connection: close` (with `Content-Length: 26`), the server closes after writing. The browser reads the 26 body bytes, sends no more requests on that connection, and closes. Its next request goes on a new connection.
 
-```text
-Connection: close        "after this reply, this connection will be closed"
-Connection: keep-alive   "keep the connection open after this reply"
-```
+**How long it stays open** with no requests is each program's own limit: nginx 75 s, Node.js 5 s (it also sends `Keep-Alive: timeout=5` in replies to tell the browser), Firefox 115 s. Whichever limit comes first closes it with FIN. Each open connection takes memory in the server's kernel and in nginx even when idle, which is why server limits are short: with 75 s, 10,000 browsers that load one page and go quiet hold 10,000 connections for 75 s. nginx also has a maximum number of connections, past which new ones wait or are refused.
 
-```text
-HTTP/1.0 (older)   the connection closes after each reply, unless the request says
-                   Connection: keep-alive
-HTTP/1.1           the connection stays open after each reply, unless either side says
-                   Connection: close
-```
-
-So in HTTP/1.1 the header usually appears only when someone wants to close. Keeping it open also needs the reply to mark where it ends, with `Content-Length` or chunks (section 101). Otherwise the only way to mark the end is to close the connection (method 3, section 82).
-
-### Who Calls close()
-The kernel never reads HTTP. The program reads the header, and calls `close()` after the reply has been completely written. Then the kernel sends FIN.
-
-**The browser sends it in the request:**
-
-```text
-GET /menu HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-Connection: close\r\n
-\r\n
-```
-
-1. The server program reads the request, including this line.
-2. It writes the full reply.
-3. It calls `close()`. Its kernel sends FIN after the last reply byte.
-4. The browser reads the reply, then `read()` returns 0, and the browser calls `close()` too.
-
-**The server puts it in the reply:**
-
-```text
-HTTP/1.1 200 OK\r\n
-Content-Length: 26\r\n
-Connection: close\r\n
-\r\n
-Margherita 8\nPepperoni 10\n
-```
-
-1. The server program writes this reply, then calls `close()`. Its kernel sends FIN.
-2. The browser reads the 26 body bytes.
-3. Having seen `Connection: close`, the browser sends no more requests on this connection and calls `close()`. Its next request goes on a new connection.
-
-### How Long It Stays Open
-HTTP's rules give no number. Each program sets its own limit for how long a connection may sit with no requests:
-
-```text
-nginx      75 s   (default)
-Node.js    5 s    (default; it also sends "Keep-Alive: timeout=5" in replies to tell the browser)
-Firefox    115 s
-Chrome     not checked
-```
-
-Whichever side's limit comes first closes the connection with FIN.
-
-### Too Many Open Connections
-Each open connection takes memory in the server's kernel and in nginx, even when no requests come. That is the main reason server limits are short. With nginx's 75 s, 10,000 browsers that load one page and go quiet hold 10,000 connections for 75 s, and then all are closed. nginx also has a maximum number of connections it holds at once. Past that, new connections wait or are refused.
-
-### With a Proxy
-The header applies only to the one connection it travels on. P holds two connections, so nginx does not pass the browser's `Connection` line on to web2. It decides separately whether its own connection to web2 stays open.
-
-### The Next Problem
-A customer orders a pizza. Ten minutes later the kitchen marks order 57 as ready on web2. The shop wants the page to show "order 57 is ready" at that moment. But in HTTP, the server sends a response only after the browser sends a request. How can the server tell the browser about something that happened later?
+**With a proxy**, the header applies only to the connection it travels on. P holds two connections, so nginx does not pass the browser's `Connection` line on to web2, and decides separately whether its own connection to web2 stays open.
 
 ---
 
-## 99. Asking Again and Again
+# Part 9: Pushing Updates to the Browser
 
-### The Setup
-The order page has a small JavaScript program that the browser runs. After the order is placed, it knows the order number, 57.
+How the server tells the browser about news: polling, long polling, SSE and WebSocket.
 
-### The Simplest Way
-Every 5 seconds, the JavaScript sends a request:
+---
 
-```text
-GET /order/57/status HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-\r\n
-```
+## 71. Asking Again and Again
 
-web2 checks its records and replies:
+A customer orders a pizza. Ten minutes later the kitchen marks order 57 ready on web2, and the page should show "order 57 is ready" at that moment. But in HTTP the server replies only after the browser sends a request.
 
-```text
-HTTP/1.1 200 OK\r\n
-Content-Type: text/plain\r\n
-Content-Length: 8\r\n
-\r\n
-cooking\n
-```
+The order page has a small JavaScript program that the browser runs, and it knows the order number, 57. Every 5 seconds it sends `GET /order/57/status`, and web2 replies `cooking\n` (with `Content-Length: 8`) until the kitchen marks it ready, when the next reply is `ready\n`. The requests share one open connection (section 70), so there is no handshake each time.
 
-When the kitchen marks it ready, the next request gets `ready\n`, and the page shows "order 57 is ready". The requests go on the same open connection (section 98), so there is no new handshake each time.
+The cost: over the 10 minutes the page sends 600 / 5 = 120 requests, and 119 of them get "cooking". With 1000 customers waiting, the shop gets 200 requests per second, almost all answered "cooking". And the news can be up to 5 seconds late. Asking every second cuts that to 1 second but makes 5 times as many requests. Asking every 30 seconds makes fewer, but can be 30 seconds late.
 
-### What It Costs
-The pizza takes 10 minutes:
-
-```text
-requests sent          600 s / 5 s = 120
-replies with news      1
-replies "cooking"      119
-```
-
-With 1000 customers waiting at once, the shop gets 1000 / 5 = 200 requests per second, almost all answered "cooking".
-
-There is also a delay. If the kitchen marks it ready just after a request was answered, the page finds out up to 5 seconds later. Asking every 1 second cuts the delay to 1 second but makes 5 times as many requests. Asking every 30 seconds makes fewer requests but can be 30 seconds late.
-
-### Name
 Sending the same request on a timer to check for news is **polling**.
 
-### The Next Problem
-Almost every reply says "cooking". What if web2 did not answer at once when there is no news? It could keep the request and reply only when the order becomes ready. What would that change, and what could go wrong while the request waits?
+## 72. Holding the Request Until There Is News
 
----
+Instead of answering "cooking", web2 can hold the request. The browser sends `GET /order/57/wait`. web2's program checks order 57: if it is ready, it replies at once. If not, it does not reply, and keeps the request in a list in memory (`waiting for order 57: connection from P, port 51000`). When the kitchen marks the order ready, the program finds that entry and writes `ready\n` on that connection. The page shows it within milliseconds. It is still one request and one reply, within HTTP's rules. The reply just comes late.
 
-## 100. Holding the Request Until There Is News
+**What goes wrong while it waits:**
 
-### The Change
-The browser sends one request:
+1. **Time limits on the way.** nginx's 60 s limit (section 70) would end the request with `504 Gateway Timeout`. So the program replies `waiting\n` by itself after, say, 30 s, and the page sends a new `/wait` at once. Over 10 minutes that is about 20 requests instead of 120.
+2. **Open connections.** Every waiting customer holds a connection to P and one from P to web2, all idle: 2000 for 1000 customers. A program running 4 copies that each handle one request at a time could hold only 4 waiting requests. Long polling needs a program that handles many connections at once, like nginx or Node.js.
+3. **News between requests.** If the order becomes ready right after a `waiting` reply, the next `/wait` checks the state first and replies at once.
 
-```text
-GET /order/57/wait HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-\r\n
-```
-
-web2's program first checks order 57. If it is already ready, it replies right away. If not, it does not reply. It keeps the request in a list in its memory:
-
-```text
-waiting for order 57:   connection from P, port 51000
-```
-
-Ten minutes later the kitchen marks order 57 ready. The program finds that entry and writes the reply on that connection:
-
-```text
-HTTP/1.1 200 OK\r\n
-Content-Length: 6\r\n
-\r\n
-ready\n
-```
-
-The page shows "order 57 is ready" within milliseconds, not up to 5 seconds later. One request, one reply, both within HTTP's rules. The reply just comes late.
-
-### What Goes Wrong While It Waits
-**1. Time limits along the way.** nginx waits up to 60 s for web2's reply (section 97). After 60 s with nothing, it sends `504 Gateway Timeout` to the browser. So the shop's program replies by itself before that, say after 30 s:
-
-```text
-HTTP/1.1 200 OK\r\n
-Content-Length: 8\r\n
-\r\n
-waiting\n
-```
-
-and the JavaScript sends a new `/wait` request right away. Over 10 minutes that is about 20 requests instead of 120.
-
-**2. Open connections.** Every waiting customer holds one connection to P and one from P to web2, the whole time. With 1000 customers, that is 1000 + 1000 open connections, all idle. A web program that runs 4 copies, each handling one request at a time, could hold only 4 waiting requests. Long polling needs a program that works like nginx or Node.js, handling many connections at once.
-
-**3. News arriving between requests.** The order might become ready in the few milliseconds after a `waiting` reply and before the next `/wait` arrives. That is fine, because the program checks order 57's state first when the next request comes in, and replies right away.
-
-### In Node.js
-Here the kitchen's screen marks an order ready by sending `POST /order/57/ready` to the same program.
+**In Node.js.** The function given to `http.createServer` is the **handler**. It runs once for every request, and `res` is the object it writes the reply on. Here the kitchen's screen sends `POST /order/57/ready` to the same program:
 
 ```js
 const http = require("http");
-
-const status = new Map([["57", "cooking"]]); // order number -> "cooking" or "ready"
-const waiting = new Map();                   // order number -> list of { res, timer }
+const status = new Map([["57", "cooking"]]);  // order number -> "cooking" or "ready"
+const waiting = new Map();                    // order number -> list of res objects not answered yet
 
 function reply(res, text) {
-  res.writeHead(200, {
-    "Content-Type": "text/plain",
-    "Content-Length": Buffer.byteLength(text),
-  });
+  res.writeHead(200, { "Content-Type": "text/plain", "Content-Length": Buffer.byteLength(text) });
   res.end(text);
 }
 
-function remove(id, entry) {
-  const list = waiting.get(id) || [];
-  waiting.set(id, list.filter((e) => e !== entry));
-}
-
-const server = http.createServer((req, res) => {
-  const wait = req.url.match(/^\/order\/(\d+)\/wait$/);
-  if (req.method === "GET" && wait) {
-    const id = wait[1];
+http.createServer((req, res) => {
+  const [, id, action] = req.url.match(/^\/order\/(\d+)\/(\w+)$/) || [];
+  if (req.method === "GET" && action === "wait") {
     if (status.get(id) === "ready") return reply(res, "ready\n");
-
-    // no news: keep res, do not reply now
-    const entry = { res };
-    entry.timer = setTimeout(() => {
-      remove(id, entry);
-      reply(res, "waiting\n");               // reply by itself after 30 s
-    }, 30000);
-    waiting.set(id, [...(waiting.get(id) || []), entry]);
-
-    // browser went away: drop the entry and its timer
-    res.on("close", () => {
-      clearTimeout(entry.timer);
-      remove(id, entry);
+    waiting.set(id, [...(waiting.get(id) || []), res]);       // no news: keep res, reply later
+    const timer = setTimeout(() => reply(res, "waiting\n"), 30000);
+    res.on("close", () => {                                    // reply sent or browser gone
+      clearTimeout(timer);
+      waiting.set(id, (waiting.get(id) || []).filter((r) => r !== res));
     });
-    return;                                   // handler ends, nothing sent yet
+    return;                                                    // handler ends, nothing sent yet
   }
-
-  const ready = req.url.match(/^\/order\/(\d+)\/ready$/);
-  if (req.method === "POST" && ready) {
-    const id = ready[1];
+  if (req.method === "POST" && action === "ready") {
     status.set(id, "ready");
-    for (const entry of waiting.get(id) || []) {
-      clearTimeout(entry.timer);
-      reply(entry.res, "ready\n");            // the late replies go out now
-    }
-    waiting.delete(id);
+    for (const r of waiting.get(id) || []) reply(r, "ready\n"); // the late replies go out now
     return reply(res, "ok\n");
   }
-
-  res.writeHead(404);
-  res.end();
-});
-
-server.listen(80);
+  res.writeHead(404); res.end();
+}).listen(80);
 ```
 
-The function passed to `http.createServer` is the **handler**. It runs once for every request. `res` is the object the handler writes the reply on.
+**No busy waiting.** When the handler returns without `res.end()`, the connection stays open with no reply. Node does not loop and check. It makes one kernel call (on Linux, `epoll_wait`) meaning "put this process to sleep until a connection has new bytes or my next timer is due", and uses no CPU while asleep. The kitchen's POST wakes it, and that handler finds the stored `res` objects and writes the replies.
 
-### No Busy Waiting
-When the handler reaches `return;` without calling `res.end()`, the connection stays open with no reply sent. Node does not loop and check. It makes one call to the kernel (on Linux, `epoll_wait`) that means "put this process to sleep until any of my connections has new bytes, or until my next timer is due". While asleep, the process uses no CPU. When the kitchen's POST arrives, the kernel wakes Node, Node runs the handler for it, and that handler finds the stored `res` objects and writes the replies.
+One limit: `waiting` and `status` live in one process's memory, so this works only when the `/wait` and the kitchen's POST reach the same process. With web1–web4 behind P, they might not, and the servers would need to share the news, which is not covered here.
 
-One limit: `waiting` and `status` live in this one process's memory. This works only when the browser's `/wait` and the kitchen's POST reach the same process. With web1–web4 behind P, they might not. That needs the servers to share the news with each other, which is not covered here.
+Holding a request until there is news or a time limit is **long polling**. Section 71's kind is sometimes called short polling.
 
-### Name
-Holding a request open until there is news, or until a time limit, is **long polling**. The polling from section 99 is sometimes called short polling, to tell them apart.
+## 73. One Reply That Never Ends
 
-### The Next Problem
-Each request still gets exactly one reply. Suppose the shop wants several updates in a row: "cooking", "in oven", "out for delivery", then the driver's position every 2 seconds. Each update ends the reply, and the browser has to send a new request. Could web2 keep sending more bytes in one reply, and never end it?
+The shop wants several updates in a row: "cooking", "in oven", "out for delivery", then the driver's position every 2 seconds. With long polling, each update ends the reply and the browser must ask again. Instead, web2 sends the status line and headers at once and never ends the body. Each time there is news, it writes a few more body bytes on the same connection, and the browser reads each part as it arrives.
 
----
+**Marking a body with no total length.** `Content-Length` is impossible, because nobody knows the length. HTTP/1.1's other way is the header `Transfer-Encoding: chunked`: the body is sent in **chunks**, each its length as hex text, `\r\n`, the bytes, `\r\n`. A chunk of length 0 ends the body. The length line and the trailing `\r\n` are **chunk markers**, not part of the body. This is the length-prefix method (section 32) done by HTTP. The browser needs the body's end to tell the page "this is the whole body" (`await res.text()` after `fetch()` returns only then), and to know which bytes on the connection belong to the next reply.
 
-## 101. One Reply That Never Ends
-
-### The Idea
-web2 sends the reply's status line and headers right away, and does not end the body. Each time there is news, it writes a few more body bytes on the same open connection. The browser reads each part as it arrives.
-
-This leaves one problem. Until now, the browser found the end of the body with `Content-Length`. Here nobody knows the length in advance, because the body has no end.
-
-### Marking the Body Without a Total Length
-HTTP/1.1 has another way: the header `Transfer-Encoding: chunked`. The body is then sent in parts called **chunks**. Each chunk is its length, written as hex text, then `\r\n`, then the bytes, then `\r\n`. A chunk of length 0 means the body is finished. This is the length-prefix method from section 82, done by HTTP.
-
-The length line before a chunk and the `\r\n` after it are the **chunk markers**. They are not part of the body.
-
-The browser needs to know where the body ends for two reasons:
-
-* To tell the page's JavaScript "this is the whole body". For example, `await res.text()` after `fetch()` returns only once the browser has found the end of the body.
-* To know which bytes come next on the same open connection. Everything after the body's end belongs to the next reply.
-
-### The Format of the Body: text/event-stream
-`text/event-stream` is a `Content-Type` value, like `text/plain` and `text/html`. It says the body is written in one particular text format:
-
-* The body is a series of **messages**. A message is one piece of news the server wants the page to get, like `cooking`.
-* A line starting with `data: ` holds the message's text.
-* An empty line ends a message.
-* A line starting with `:` means nothing, and the browser skips it.
-
-"Event" is the word these rules use for one message. "Event stream" means a series of messages arriving over time. The whole body is text and must be UTF-8. Raw binary data, like a photo's bytes, would first have to be turned into text characters, which makes it about a third larger. In practice it is used for short text messages.
-
-### Several Messages, and Text With Line Breaks
-One message is everything up to the next empty line, so several messages can go in one write and arrive in the same frame. The browser still calls `onmessage` once for each:
+**The body format, `text/event-stream`**, is a `Content-Type` value like `text/plain`. The body is a series of **messages**, each a piece of news like `cooking`. A line starting `data: ` holds a message's text, an empty line ends the message, and a line starting `:` means nothing and is skipped. These rules call a message an "event", so "event stream" means messages arriving over time. The body must be UTF-8 text. Binary data, like a photo, would have to be turned into text characters first, about a third larger, so in practice it carries short text messages.
 
 ```text
 data: a\n\ndata: b\n\ndata: c\n\ndata: d\n\n      -> onmessage("a"), ("b"), ("c"), ("d")
-```
-
-A line break ends a `data:` line, so text with line breaks is sent as one `data:` line per line of text. The browser joins them back with `\n`:
-
-```text
 text "a\n\nb"   is sent as   data: a\ndata: \ndata: b\n\n   -> onmessage("a\n\nb")
 ```
 
-Often the server sends JSON from `JSON.stringify`, which writes a line break as the two characters `\` and `n`, so the text has no real line breaks at all.
+Several messages can go in one write and one frame, and the browser still delivers each separately. Text with line breaks becomes one `data:` line per line of text, joined back with `\n`. JSON from `JSON.stringify` writes a line break as the two characters `\` and `n`, so it has no real line breaks at all.
 
-### The Bytes, in Order
-The page opens the stream at 0 s, and the browser sends:
-
-```text
-GET /order/57/events HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-Accept: text/event-stream\r\n
-\r\n
-```
-
-`Accept` is a request header where the browser lists which body formats (`Content-Type` values) it wants in the reply.
-
-web2 replies at once with the headers and the current state, and does not end the body:
+**The bytes in order.** The browser sends `GET /order/57/events` with `Accept: text/event-stream`. `Accept` is a request header listing the body formats (`Content-Type` values) the browser wants. web2 replies at once and keeps writing:
 
 ```text
 HTTP/1.1 200 OK\r\n
 Content-Type: text/event-stream\r\n
 Transfer-Encoding: chunked\r\n
 \r\n
-F\r\ndata: cooking\n\n\r\n             <- 0 s: 0xF = 15 bytes, message "cooking"
-```
-
-`data: ` is 6 bytes, `cooking` is 7, and two `\n` are 2: 6 + 7 + 2 = 15 = hex F. Later bytes on the same reply:
-
-```text
+F\r\ndata: cooking\n\n\r\n             <- 0 s: 0xF = 15 bytes (6 + 7 + 2), message "cooking"
 8\r\n: ping\n\n\r\n                    <- 30 s, skipped by the browser
-8\r\n: ping\n\n\r\n                    <- 60 s, skipped
-F\r\ndata: in oven\n\n\r\n             <- 4 min, message "in oven"
-...
-18\r\ndata: out for delivery\n\n\r\n   <- 9 min, 0x18 = 24 bytes, message "out for delivery"
+F\r\ndata: in oven\n\n\r\n             <- 4 min
+18\r\ndata: out for delivery\n\n\r\n   <- 9 min, 0x18 = 24 bytes
 ```
 
-### One Write as Bytes
-`data: a\n\n` is 9 bytes. Four of them are 36 bytes, hex 24. One write of all four is one chunk:
+One write of four 9-byte messages (`data: a\n\n` ... `data: d\n\n`) is one 36-byte chunk: `24\r\n` (4 bytes), the 36 bytes, `\r\n` (2 bytes), 42 bytes of TCP data. The browser removes the markers, finds `\n\n` four times, and calls `onmessage` four times.
 
-```text
-32 34 0D 0A                      "24\r\n"   chunk marker: 0x24 = 36 bytes follow
-64 61 74 61 3A 20 61 0A 0A       "data: a\n\n"
-64 61 74 61 3A 20 62 0A 0A       "data: b\n\n"
-64 61 74 61 3A 20 63 0A 0A       "data: c\n\n"
-64 61 74 61 3A 20 64 0A 0A       "data: d\n\n"
-0D 0A                            "\r\n"     chunk marker: end of this chunk
-```
+**Who parses.** `EventSource` is code built into the browser. The page's JavaScript calls `new EventSource("/order/57/events")` once, and the browser does the rest as bytes arrive: sends the GET, removes chunk markers, waits for the empty line (holding a message split across frames), removes `data: ` and calls the page's `onmessage("in oven")`. With `fetch()` instead, the page would get the raw `data: in oven\n\n` bytes and split them itself.
 
-42 bytes of TCP data: 4 + 36 + 2. The browser removes the first 4 and the last 2, then finds `0A 0A` four times, so it calls `onmessage` four times.
+**Server (Node.js):**
 
-### Who Does the Parsing
-The browser, as the bytes arrive, not the page's JavaScript. `EventSource` is code built into the browser by its makers. The page's JavaScript calls `new EventSource(...)` once, and from then on the browser's code runs by itself:
-
-```text
-0 s       page JS calls new EventSource("/order/57/events")   <- page JS runs once
-0 s       browser sends the GET request, reads the reply's headers
-4 min     bytes arrive: F\r\ndata: in oven\n\n\r\n
-          browser removes chunk markers -> data: in oven\n\n
-          browser finds the empty line -> one complete message
-          browser removes "data: ", calls page JS onmessage("in oven")   <- page JS runs again
-9 min     next bytes arrive, same steps
-```
-
-If a message arrives split across two frames, the browser keeps the first part and calls `onmessage` only when the empty line has arrived. If the page used `fetch()` instead of `EventSource`, it would get the body bytes `data: in oven\n\n` and would have to split them itself.
-
-### Server (Node.js)
 ```js
-const http = require("http");
-
-const status = new Map([["57", "cooking"]]); // order number -> current text
-const listeners = new Map();                 // order number -> list of open replies (res)
-
-function send(res, text) {
-  // one data line per line of text, then the empty line that ends the message
+const listeners = new Map();   // order number -> open replies (res)
+const send = (res, text) =>    // one data line per line of text, then the empty line
   res.write(text.split("\n").map((line) => `data: ${line}`).join("\n") + "\n\n");
-}
 
-http.createServer((req, res) => {
-  const events = req.url.match(/^\/order\/(\d+)\/events$/);
-  if (req.method === "GET" && events) {
-    const id = events[1];
-    res.writeHead(200, { "Content-Type": "text/event-stream" });
-    send(res, status.get(id));               // current state first
-    listeners.set(id, [...(listeners.get(id) || []), res]);
+// in the handler, for GET /order/<id>/events:
+res.writeHead(200, { "Content-Type": "text/event-stream" });
+send(res, status.get(id));                                   // current state first
+listeners.set(id, [...(listeners.get(id) || []), res]);
+const ping = setInterval(() => res.write(": ping\n\n"), 30000);
+res.on("close", () => { clearInterval(ping); listeners.set(id, listeners.get(id).filter((r) => r !== res)); });
+// res.end() is not called
 
-    const ping = setInterval(() => res.write(": ping\n\n"), 30000);
-    res.on("close", () => {                  // browser went away
-      clearInterval(ping);
-      listeners.set(id, listeners.get(id).filter((r) => r !== res));
-    });
-    return;                                  // res.end() is not called here
-  }
-
-  const update = req.url.match(/^\/order\/(\d+)\/status$/);
-  if (req.method === "POST" && update) {     // the kitchen sends "in oven", ...
-    let body = "";
-    req.on("data", (part) => (body += part));
-    req.on("end", () => {
-      const id = update[1];
-      status.set(id, body);
-      for (const r of listeners.get(id) || []) send(r, body);
-      res.end("ok\n");
-    });
-    return;
-  }
-
-  res.writeHead(404);
-  res.end();
-}).listen(80);
+// when the kitchen POSTs a new status text for <id>:
+for (const r of listeners.get(id) || []) send(r, text);
 ```
 
-The handler does not write `Transfer-Encoding: chunked`. Node adds it by itself: when the handler gives no `Content-Length`, Node puts that header in, and wraps every `res.write()` in a chunk. The handler never sees the chunk markers.
+The handler never writes `Transfer-Encoding: chunked`. With no `Content-Length`, Node adds it and wraps every `res.write()` in a chunk itself. The page's side:
 
-### Browser (the Page's JavaScript)
 ```js
 const events = new EventSource("/order/57/events");
-
 events.onmessage = (e) => {
   document.getElementById("status").textContent = e.data;  // "cooking", "in oven", ...
   if (e.data === "delivered") events.close();              // stop, no more requests
 };
 ```
 
-### nginx in Between
-Two of nginx's defaults get in the way:
-
-* **Its buffer** (section 96): with `proxy_buffering on`, a 15-byte message can sit in nginx's buffer instead of going to the browser.
-* **Its 60 s limit** (section 97): if web2 sends nothing for 60 s, nginx ends the reply.
-
-Both are set in nginx's settings file, only for the stream paths:
+**nginx in between.** Two defaults get in the way: its buffer (section 69), where a 15-byte message can sit instead of reaching the browser, and its 60 s limit (section 70). Both are set for the stream paths only:
 
 ```text
 location ~ /events$ {               # these settings apply only to paths ending in /events
@@ -4844,326 +1733,112 @@ location ~ /events$ {               # these settings apply only to paths ending 
 }
 ```
 
-The other way is for web2's program to decide per reply, without changing nginx's file. It adds the header `X-Accel-Buffering: no` to the reply. nginx reads it, sends this reply's bytes on as they arrive, and removes the line, so the browser never sees it. Node knows nothing about nginx, so Node never adds it by itself.
+Or web2's program decides per reply by adding the header `X-Accel-Buffering: no`. nginx reads it, passes this reply's bytes on at once, and removes the line. Node never adds it by itself, since it knows nothing about nginx. The `: ping` every 30 s keeps bytes passing when there is no news, so no machine on the way closes the connection for being silent.
 
-The `: ping\n\n` line every 30 s is there so bytes keep passing even when there is no news, and no machine on the way closes the connection for being silent. The browser skips it, by the `:` rule.
+**What `res.end()` sends.** It ends the HTTP reply, not the TCP connection. For a normal reply, `res.end("ok\n")` with nothing written before, Node sends `Content-Length: 3` and the 3 bytes, with no end marker. For a chunked reply, after `res.write("data: delivered\n\n")`, `res.end()` sends the 0 chunk, `0\r\n\r\n`. Either way the connection stays open for the next request. Node closes it with FIN only if either side sent `Connection: close` (section 70).
 
-### Ending the Reply: What res.end() Sends
-`res.end()` ends the HTTP reply. It does not close the TCP connection. What it sends depends on how the reply's length is marked.
+**Reconnecting.** `EventSource`'s rules (part of the HTML rules browsers follow) say that whenever the connection breaks or the reply ends, the browser waits a few seconds and sends the same GET again. The browser cannot tell a planned end from an unplanned one: web2's program being restarted, nginx's time limit, or web2 being taken out of the list (section 67) all end the stream with a normal `0\r\n\r\n`, and the page still wants updates. So `res.end()` alone does not stop it. The new GET runs the handler from the start, which sends the current status first, so news sent while the phone had no signal still arrives. A planned stop has signals that cannot happen by accident: the page calls `events.close()`, or the server answers the reconnect with `204 No Content`. A common pattern: the server sends `data: delivered\n\n` and calls `res.end()`, and the page calls `events.close()` when it sees `delivered`.
 
-**Normal reply**: `res.end("ok\n")` with nothing sent before. Node counts the 3 bytes itself:
+**Limits:** one direction only, server to browser (the browser sends with ordinary requests). Text only. With HTTP/1.1, each open stream holds one of the browser's 6 connections to that name (section 61). With HTTP/2 it is one stream on the shared connection.
 
-```text
-HTTP/1.1 200 OK\r\n
-Content-Length: 3\r\n
-\r\n
-ok\n
-```
-
-No end marker is needed. The browser knows the body ends after 3 bytes.
-
-**Chunked reply** (SSE, or any reply with earlier `res.write()` calls and no `Content-Length`):
-
-```js
-res.write("data: delivered\n\n");
-res.end();
-```
-
-```text
-11\r\ndata: delivered\n\n\r\n     <- the write (0x11 = 17 bytes)
-0\r\n\r\n                         <- from res.end(): the 0 chunk, "body finished"
-```
-
-In both cases the connection stays open afterwards and can carry the next request. Node closes it with FIN after `res.end()` only if either side sent `Connection: close` (section 98).
-
-### Reconnecting
-`EventSource`'s rules (part of the HTML rules browsers follow) say: whenever the connection breaks or the server ends the reply, wait a few seconds and send the same GET again. The browser cannot tell whether the server meant to end, because many things end a stream with a normal `0\r\n\r\n` without the shop's program deciding to stop:
-
-```text
-web2's program is restarted                 Node ends open replies on the way down
-nginx's time limit is reached               nginx ends the reply to the browser
-web2 is taken out of the list (section 94)  the reply ends, other servers are still working
-```
-
-In all of these, the page still wants updates, and reconnecting gets them. So `res.end()` alone does not stop the stream.
-
-The new GET runs the handler from the start, and the handler's first act is to send the current status. So if "in oven" was sent while the phone had no signal, the reconnected page still gets `in oven` as its first message.
-
-The browser does not know what the messages mean, so it never decides to stop by itself, except when the tab is closed. A planned stop has its own signals, which cannot happen by accident:
-
-```text
-page JS calls events.close()               after it sees "delivered"
-server answers the reconnect GET with      HTTP/1.1 204 No Content
-```
-
-A common pattern: the server sends `data: delivered\n\n` and calls `res.end()`, and the page calls `events.close()` when it sees `delivered`.
-
-### Who Does What
-```text
-page JS        calls new EventSource once; gets message text in onmessage; calls close() at the end
-browser        sends the GET, removes chunk markers, splits at empty lines, removes "data: ",
-               calls onmessage; reconnects by itself if the reply ends or the connection breaks
-nginx (P)      passes bytes on at once (proxy_buffering off, or X-Accel-Buffering: no)
-web2 program   writes "data: ...\n\n" for news and ": ping\n\n" every 30 s
-```
-
-### Limits
-* One direction only, server to browser. The browser sends data with ordinary requests.
-* Text only (UTF-8).
-* With HTTP/1.1, each open stream holds one of the browser's 6 connections to that name (section 88). With HTTP/2 it is one stream on the shared connection, so this limit does not apply.
-
-### Name
 This is **Server-Sent Events**, or **SSE**.
 
-### The Next Problem
-The customer wants to chat with the driver: messages going both ways, many times a minute. With SSE, the driver's messages arrive on the open reply, but each customer message is a separate POST request with all its headers. Could the browser and the server stop using HTTP's request/response rules on a connection and just send messages both ways?
+## 74. Switching the Connection to Another Protocol
 
----
+The customer wants to chat with the driver, messages both ways many times a minute. With SSE, each customer message would be a separate POST with all its headers. Instead, the browser opens a TCP connection and sends an HTTP request that asks: "after this, let us stop speaking HTTP on this connection." If the server agrees, both switch to different rules on the same connection, where either side sends messages whenever it wants, with no requests and no replies.
 
-## 102. Switching the Connection to Another Protocol
-
-### The Idea
-The browser opens a normal TCP connection and sends a normal HTTP request, but the request asks: "after this, let us stop speaking HTTP on this connection." If the server agrees, both sides switch to a different set of rules on the same TCP connection. Under the new rules, either side can send a message whenever it wants, with no requests and no replies.
-
-### The Request That Asks to Switch
 ```text
-GET /chat/57 HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-Connection: Upgrade\r\n
-Upgrade: websocket\r\n
-Sec-WebSocket-Version: 13\r\n
+GET /chat/57 HTTP/1.1\r\n                                HTTP/1.1 101 Switching Protocols\r\n
+Host: www.bluepizza.com\r\n                              Connection: Upgrade\r\n
+Connection: Upgrade\r\n                                  Upgrade: websocket\r\n
+Upgrade: websocket\r\n                                   Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n
+Sec-WebSocket-Version: 13\r\n                            \r\n
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n
 \r\n
 ```
 
-* `Connection: Upgrade`: the `Connection` header from section 98, with a new value: "I want to change the protocol on this connection."
-* `Upgrade: websocket`: which protocol to change to.
-* `Sec-WebSocket-Version: 13`: which version of the WebSocket rules the browser follows.
-* `Sec-WebSocket-Key`: 16 random bytes the browser picks for this one handshake.
+`Connection: Upgrade` is section 70's header with a new value: "I want to change the protocol on this connection". `Upgrade: websocket` names the protocol, and `Sec-WebSocket-Version: 13` the version of its rules. `Sec-WebSocket-Key` is 16 random bytes picked for this one handshake, written in **base64**: any bytes written using only letters, digits, `+` and `/`, 3 bytes to 4 characters, with `=` filling a short last group. 16 bytes become 24 characters ending in `==`. Status `101` means "agreed, switching now". Everything after its empty line, both ways, follows the new rules.
 
-The key is written using **base64**, a way to write any bytes using only letters, digits, `+` and `/`. Every 3 bytes become 4 characters, and `=` fills the last group if it is short. 16 bytes become 24 characters, ending in `==`.
+**Why only the browser writes `Sec-` headers.** The browser does not let page JavaScript set any header starting `Sec-`; `fetch()` leaves such lines out. So a server that sees `Sec-WebSocket-Key` knows the browser itself made a real WebSocket request, and page JavaScript cannot fake one to make a server switch. The shared start lets one rule cover all such headers, including future ones.
 
-### Why Only the Browser Writes Sec- Headers
-The browser does not let page JavaScript set any header whose name starts with `Sec-`. If `fetch()` tries, the browser leaves the line out. So when a server sees `Sec-WebSocket-Key`, it knows the browser itself sent a real WebSocket request. Page JavaScript cannot fake one with `fetch()` to make a server switch. Because these headers share the start `Sec-`, one rule covers all of them, including ones added later.
+**The accept value.** It uses **SHA-1**, a calculation that turns any input into 20 bytes, always the same 20 for the same input. The server joins the key with a fixed text from the WebSocket rules (`dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11`), takes the SHA-1 of it, and writes those 20 bytes in base64: `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`. The browser does the same with the key it sent and compares. If they match it switches, otherwise it closes. Only a server that knows the WebSocket rules can produce the right value for a key just made up, so this proves the reply came from a WebSocket server, not an ordinary HTTP server or a stored copy of an old reply.
 
-### The Reply That Agrees
-```text
-HTTP/1.1 101 Switching Protocols\r\n
-Connection: Upgrade\r\n
-Upgrade: websocket\r\n
-Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n
-\r\n
-```
-
-Status `101` means "agreed, switching now". Everything after this empty line, in both directions, follows the WebSocket rules instead of HTTP's.
-
-### The Key and the Accept Value
-`Sec-WebSocket-Accept` is the server's answer to the key. It uses **SHA-1**, a calculation that turns any input into 20 bytes. The same input always gives the same 20 bytes.
-
-```text
-1. server joins the key text and a fixed text written in the WebSocket rules:
-   dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11
-2. SHA-1 of those characters gives 20 bytes:
-   b3 7a 4f 2c c0 62 4f 16 90 f6 46 06 cf 38 59 45 b2 be c4 ea
-3. those 20 bytes in base64 (28 characters):
-   s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
-4. server writes it in the reply:
-   Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
-```
-
-The browser remembers the key it sent, does steps 1–3 itself, and compares its own 28 characters with the ones after `Sec-WebSocket-Accept:` in the reply. If they are the same, it switches. If not, it closes the connection.
-
-Only a server that knows the WebSocket rules can produce the right value for a key that was just made up. So this proves the reply came from a WebSocket server, not from an ordinary HTTP server or a stored copy of an old reply.
-
-### One Connection, Used Only for This
-In HTTP/1.1 a connection carries one request at a time, and browsers open a **new** TCP connection for each WebSocket. The page's other GETs (menu, photos) go on the browser's other connections. Once switched, the connection never goes back to HTTP. It carries WebSocket messages until it is closed.
-
-Everything happens on that one connection, with the same four values:
+**One connection, used only for this.** Browsers open a **new** TCP connection for each WebSocket, and the page's other requests use other connections. Once switched, it never goes back to HTTP:
 
 ```text
 SYN, SYN+ACK, ACK                  TCP handshake
 GET /chat/57 ... Upgrade           HTTP request
 HTTP/1.1 101 Switching Protocols   HTTP reply
-pieces, both directions, any time  WebSocket messages (section 103)
+pieces, both directions, any time  WebSocket messages (section 75)
 close piece, then FIN              end
 ```
 
-### A Separate Protocol
-Polling, long polling and SSE are plain HTTP: ordinary requests and replies. SSE is just an HTTP reply whose body uses `text/event-stream` and never ends.
+Polling, long polling and SSE are plain HTTP: SSE is just a reply whose `text/event-stream` body never ends. **WebSocket** is a separate protocol. Only its start uses HTTP, one GET and one `101`, so it can share port 80 and pass through proxies like nginx. The switch is the **WebSocket handshake**, separate from and after TCP's.
 
-WebSocket is a separate protocol with its own rules. Only its start uses HTTP, one GET and one `101` reply, so it can share port 80 and pass through proxies like nginx. After the 101, no HTTP is spoken on that connection again.
+## 75. WebSocket Messages
 
-### Name
-This protocol is **WebSocket**. The switch with `101` is the **WebSocket handshake**. It is separate from TCP's handshake and comes after it.
-
-### The Next Problem
-After the 101 there are no requests, no replies and no `Content-Length`. How does each side know where one message ends and the next begins?
-
----
-
-## 103. WebSocket Messages
-
-### A Header, Then the Message
-After the 101, every message goes on the connection as a small header followed by the message bytes. The rules call this a frame. To keep it apart from cable frames, these notes call it a **piece**, as with HTTP/2 (section 89).
+After the 101, every message goes as a small header and the message bytes. The rules call this a frame. These notes call it a **piece**, as with HTTP/2 (section 62). The header's first 2 bytes hold four things:
 
 ```text
-[ header ][ message bytes ]
-```
-
-The first 2 bytes of the header hold four things:
-
-```text
-last part?     yes or no. A long message can be split into several pieces. Usually yes.
-kind           text, binary (any bytes, like a photo), close (ending the WebSocket),
-               ping or pong (section 104)
-scrambled?     no for pieces from the server, yes for pieces from the browser
+last part?     yes or no; a long message can be split into several pieces (usually yes)
+kind           text, binary (any bytes, like a photo), close (ending the WebSocket), ping or pong (section 76)
+scrambled?     yes for pieces from the browser, no for pieces from the server
 length         how many message bytes follow
 ```
 
-### Reading a Piece
-The driver's side sends "on my way", which is 9 characters:
+The driver's side sends "on my way", 9 characters: 2 header bytes (last part, text, not scrambled, length 9) and 9 message bytes. The browser reads the header, then exactly 9 bytes, and passes one complete message to the page. The next byte starts the next header. This is the length-prefix method (section 32), so one `send("ok")` gives exactly one message `"ok"`, never split or joined.
+
+The length space is 7 bits (0 to 127): 0–125 is the length itself, 126 means the real length is in the next 2 bytes (up to 65,535), 127 means the next 8 bytes. So a 9-byte message has a 2-byte header, 1,000 bytes a 4-byte one, 100,000 bytes a 10-byte one.
+
+**No reply.** WebSocket has no request/response rule. The server's "on my way" costs those 11 bytes and nothing comes back. As an HTTP POST, a customer message would cost about 100 bytes of request plus a 50+ byte reply, because HTTP needs a reply (section 70). The kernels' TCP acks happen either way.
+
+**Scrambling.** The browser picks 4 random bytes per piece, the **mask**, and combines message byte 1 with mask byte 1, byte 2 with mask byte 2, and so on, byte 5 with mask byte 1 again. The combining is **XOR**: compare bit by bit, write 1 where the bits differ and 0 where they are the same. `o` (0110 1111) XOR mask 18 (0001 0010) gives 0111 1101, the character `}`. XOR with the same value again gives back the original, so the server reverses it.
+
+**Why browser pieces are scrambled.** Some old machines on the path, like the school's proxy F (section 66), read passing bytes looking for `GET ... HTTP/1.1`. They do not know WebSocket, miss the switch at `101`, and keep reading the bytes as HTTP. Without scrambling, a bad website could make F store a fake page:
+
+1. A student opens a page from `www.badsite.com`, whose owner wrote both the page's JavaScript and the server program.
+2. The page opens a WebSocket to its own server through F. F passes everything but still treats the connection as HTTP.
+3. The page sends a message whose text is exactly `GET http://www.bluepizza.com/menu HTTP/1.1\r\nHost: www.bluepizza.com\r\n\r\n`. F reads it as a request for bluepizza's menu, but sends it on the connection it has open, to badsite's server.
+4. badsite's server answers with bytes that look like an HTTP reply: `200 OK` and a fake menu with other prices or a fake order form.
+5. F stores this as its copy of bluepizza's menu, and gives it to every student who asks, for as long as the copy is kept.
+
+With scrambling, step 3 fails: the browser XORs the text with 4 random bytes it chose, so F sees no request. Researchers showed this attack against real proxies in 2011, which is why the rule exists. Server pieces are not scrambled, because page JavaScript does not choose what the server sends.
+
+**Full examples:**
 
 ```text
-header:   last part = yes, kind = text, scrambled = no, length = 9      2 bytes
-message:  on my way                                                    9 bytes
-```
-
-The browser reads the 2 header bytes and learns "text, 9 bytes". It reads the next 9 bytes, which make one complete message, and passes "on my way" to the page's JavaScript. The byte after that starts the next piece's header.
-
-This is the length-prefix method from section 82. So one `send("ok")` on one side gives exactly one message `"ok"` on the other, never split and never joined with the next.
-
-### Longer Messages
-The length space in the header is 7 bits, so it can hold 0 to 127. The rules use it like this:
-
-```text
-value in length space    meaning
-0 - 125                  that is the length
-126                      the real length is in the next 2 bytes (up to 65,535)
-127                      the real length is in the next 8 bytes (larger)
-```
-
-The receiver always reads the first 2 header bytes, then looks at the length space:
-
-```text
-message size    length space says    header size
-9 bytes         9                    2 bytes
-1,000 bytes     126                  2 + 2 = 4 bytes   (next 2 bytes hold 1,000)
-100,000 bytes   127                  2 + 8 = 10 bytes  (next 8 bytes hold 100,000)
-```
-
-### No Reply
-WebSocket has no request/response rule. When the server sends "on my way", the browser sends nothing back. Those 11 bytes are all the message costs.
-
-With HTTP, a customer message sent as a POST must get a reply, because that is HTTP's rule (section 97):
-
-```text
-HTTP:       POST request (about 100 bytes)  ->   then   <- reply "HTTP/1.1 200 OK ..." (about 50+ bytes)
-WebSocket:  piece (11 bytes)                ->   nothing comes back
-```
-
-TCP's acks still happen in both cases, but those are sent by the kernels, not the programs, and they are the same either way.
-
-### Scrambling
-**Scrambled** means each message byte is changed with a random value before sending, so the bytes on the wire are not the bytes the page wrote. The server reverses the change and gets the original back.
-
-The browser picks 4 random bytes for each piece, called the **mask**. It combines message byte 1 with mask byte 1, message byte 2 with mask byte 2, and so on. Byte 5 uses mask byte 1 again. The combining is **XOR**: compare the two bytes bit by bit, and write 1 where the bits differ and 0 where they are the same.
-
-The letter `o` with mask byte 18:
-
-```text
-o          0110 1111
-mask 18    0001 0010
-XOR        0111 1101    = the character }
-```
-
-The server does XOR with the same mask byte again and gets `0110 1111`, which is `o`. Doing XOR twice with the same value always gives back the original.
-
-### Why Browser Pieces Are Scrambled
-Some old machines on the path, like a school's proxy F (section 93), read the bytes on connections that pass through them and look for things like `GET ... HTTP/1.1`. They do not know WebSocket. When such a machine sees the `101`, it does not understand that the connection has switched, and keeps reading the bytes as if they were still HTTP.
-
-Without scrambling, a bad website could make F keep a fake version of a real page:
-
-1. A student opens a page from `www.badsite.com`. The person who runs that site wrote both the page's JavaScript and the server program.
-2. The page opens a WebSocket to its own server, through F. The server agrees with `101`. F passes everything on but still treats the connection as HTTP.
-3. The page's JavaScript sends a WebSocket message whose text is exactly:
-
-   ```text
-   GET http://www.bluepizza.com/menu HTTP/1.1\r\n
-   Host: www.bluepizza.com\r\n
-   \r\n
-   ```
-
-   F reads these bytes as a new request for bluepizza's menu. But it sends them on the connection it already has open, which leads to badsite's server.
-4. badsite's server sends back bytes that look like an HTTP reply: `HTTP/1.1 200 OK`, headers, and a fake menu with different prices or a fake order form.
-5. F stores this as its copy of `www.bluepizza.com/menu`.
-6. For as long as that copy is kept, every student who asks for bluepizza's menu gets the fake page from F. bluepizza's real server is never contacted.
-
-With scrambling, step 3 does not work. The page writes `GET http://...`, but the browser XORs it with 4 random bytes it chose, so the bytes on the wire are unreadable, and F does not see a request. Researchers showed this attack working against real proxies in 2011, which is why the scrambling rule is in the WebSocket rules.
-
-The server's pieces are not scrambled, because page JavaScript does not choose what the server sends.
-
-### Full Examples
-**Server to browser, "on my way" (11 bytes):**
-
-```text
+server -> browser, "on my way" (11 bytes)
 byte 1     1 000 0001       last part = yes, (3 unused bits), kind = 0001 = text
 byte 2     0 000 1001       scrambled = no, length = 9
-bytes 3-11 on my way        the message, as is
-```
+bytes 3-11 on my way
 
-**Browser to server, "ok" (8 bytes):**
-
-```text
+browser -> server, "ok" (8 bytes)
 byte 1     1 000 0001       last part = yes, kind = text
 byte 2     1 000 0010       scrambled = yes, length = 2
-bytes 3-6  18 52 86 120     the mask, 4 random bytes picked by the browser
+bytes 3-6  18 52 86 120     the mask
 byte 7     }                o scrambled with 18
 byte 8     _                k scrambled with 52
 ```
 
-The server reads byte 2, sees "scrambled = yes, length 2", reads the 4 mask bytes, then the 2 message bytes, and reverses the XOR to get `ok`.
+The mask is part of the header, after the length bytes. So a header is 2 bytes, plus 2 or 8 for a longer length, plus 4 for a mask from the browser: 2 to 14 bytes.
 
-### Header Size
-The mask is part of the header. It comes right after the length bytes and before the message bytes.
+## 76. WebSocket Through nginx, and the Programs
 
-```text
-part                          when                                   bytes
-first 2 bytes                 always                                 2
-extra length                  message 126 - 65,535 bytes             +2
-                              message larger than that               +8
-mask                          piece sent by the browser              +4
-```
-
-So a header is 2 to 14 bytes, followed by the message bytes.
-
-### The Next Problem
-There is a proxy in the middle. nginx does not pass the browser's `Connection` line on to web2, because it applies to one connection only (section 98). So the request that asks to switch reaches web2 without `Connection: Upgrade`, and web2 never switches. What has to change in nginx, and what do the Node.js and browser programs look like?
-
----
-
-## 104. WebSocket Through nginx, and the Programs
-
-### What nginx Needs
-In nginx's settings file (section 96):
+nginx does not pass the browser's `Connection` line on to web2 (section 70), so the request to switch reaches web2 without `Connection: Upgrade`, and web2 never switches. The fix, in nginx's settings file (section 69):
 
 ```text
 location /chat/ {                              # these lines apply to paths starting with /chat/
     proxy_pass http://shop_servers;            # send to the list web1-web4
-    proxy_http_version 1.1;                    # talk HTTP/1.1 to web2
-    proxy_set_header Upgrade $http_upgrade;    # add an Upgrade line to the request to web2
-    proxy_set_header Connection "upgrade";     # add "Connection: upgrade" to the request to web2
+    proxy_http_version 1.1;                    # talk HTTP/1.1 to web2 (the default is 1.0, which has no Upgrade)
+    proxy_set_header Upgrade $http_upgrade;    # add an Upgrade line with the browser's value, here websocket
+    proxy_set_header Connection "upgrade";     # add "Connection: upgrade"
     proxy_read_timeout 3600s;                  # allow 1 hour with no bytes, instead of 60 s
 }
 ```
 
-* `proxy_http_version 1.1`: by default nginx talks HTTP/1.0 to the web servers, and switching with `Upgrade` exists only in HTTP/1.1.
-* `proxy_set_header`: adds a header to the request nginx sends to web2. `$http_upgrade` is nginx's name for the value of the browser's `Upgrade` line, here `websocket`. These two lines put back what nginx would otherwise leave out, so web2 receives a request asking to switch.
+`proxy_set_header` adds a header to the request nginx sends to web2. These two lines put back what nginx would leave out. When web2 replies `101`, nginx passes it on and stops reading HTTP on both connections. From then on it copies every byte each way without looking. There are still two TCP connections, browser–P and P–web2, and the pieces go through unchanged.
 
-### What nginx Does After the Switch
-web2 replies `101`. nginx passes the 101 to the browser and from then on stops reading HTTP on both connections. It copies every byte from the browser's connection into web2's connection, and every byte from web2's back, without looking at them. There are still two TCP connections, browser–P and P–web2. The WebSocket pieces go through unchanged.
-
-### The Server Program (Node.js)
-Node's built-in `http` module does not do the server side of WebSocket. The common library for it is `ws`. It checks the `Upgrade` and `Sec-WebSocket-Key` lines, computes `Sec-WebSocket-Accept`, writes the 101, and then reads and writes pieces: header, length, removing the scrambling.
+**The server program.** Node's built-in `http` module does not do WebSocket's server side. The common library is `ws`: it checks the `Upgrade` and key lines, computes the accept value, writes the 101, and then reads and writes pieces, including removing the scrambling.
 
 ```js
 const http = require("http");
@@ -5171,218 +1846,90 @@ const { WebSocketServer } = require("ws");
 
 const server = http.createServer(/* handler for normal requests */);
 const wss = new WebSocketServer({ server });   // takes requests that ask to switch
-
 const rooms = new Map();                        // order number -> open sockets (customer, driver)
 
 wss.on("connection", (socket, req) => {         // runs after the 101 is sent
   const id = req.url.split("/")[2];             // "/chat/57" -> "57"
   if (!rooms.has(id)) rooms.set(id, new Set());
   rooms.get(id).add(socket);
-
   socket.on("message", (data, isBinary) => {    // one complete message
-    for (const other of rooms.get(id)) {
-      if (other !== socket) other.send(data, { binary: isBinary });
-    }
+    for (const other of rooms.get(id)) if (other !== socket) other.send(data, { binary: isBinary });
   });
-
   socket.on("close", () => rooms.get(id).delete(socket));
 });
-
 server.listen(80);
 ```
 
-**isBinary:** `ws` always gives the message to the code as bytes (a Node `Buffer`). `isBinary` says which kind the piece's header had: `false` for text, `true` for binary. Passing `{ binary: isBinary }` to `send()` makes the forwarded piece the same kind as the original. Without it, `ws` sends a `Buffer` as binary, so the driver's browser would get `e.data` as raw bytes (a `Blob`) instead of the string `"where are you?"`.
+`ws` always gives the message as bytes (a Node `Buffer`), and `isBinary` says what the piece's header said: `false` for text. Passing `{ binary: isBinary }` keeps the forwarded piece the same kind. Without it, `ws` sends a `Buffer` as binary, and the driver's browser would get raw bytes (a `Blob`) instead of the string.
 
-### The Browser Program
+**The browser program:**
+
 ```js
 const ws = new WebSocket("ws://www.bluepizza.com/chat/57");
-
 ws.onopen = () => ws.send("where are you?");   // runs after the 101 arrives
 ws.onmessage = (e) => show(e.data);            // "on my way"
 ws.onclose = () => show("chat ended");
 ```
 
-`ws://` is the address form for WebSocket without encryption. The browser turns it into a TCP connection to port 80 and the GET request with the `Upgrade` lines. `wss://` is the encrypted form, which comes with TLS.
+`ws://` is WebSocket without encryption: a TCP connection to port 80 and the GET with the `Upgrade` lines. `wss://` is the encrypted form, with TLS (Part 10).
 
-### The Room, Step by Step
-The customer's browser (C) and the driver's phone (D) both opened `/chat/57` and both reached the same web2 program. After both connect, web2's memory is:
+**The room, step by step.** The customer's browser C and the driver's phone D both opened `/chat/57` on the same web2 program, so `rooms` holds `"57" -> { socketC, socketD }`. C's page calls `ws.send("where are you?")`. C's browser builds a scrambled text piece of length 14 and sends it. nginx copies the bytes to web2. `ws` reads the piece, removes the scrambling, and runs socketC's "message" handler. The shop's code goes through the room, skips socketC as the sender, and calls `socketD.send(data, { binary: false })`. `ws` writes an unscrambled text piece on D's connection, and D's `onmessage` gets "where are you?". D's reply runs the same steps the other way.
 
-```text
-rooms:  "57" -> { socketC, socketD }
-```
+**A silent chat.** If nobody types for an hour, nginx's 1-hour limit closes the connection. The **ping** and **pong** kinds are for this: the server sends a ping every 30 s with `socket.ping()`, and the browser answers each with a pong by itself, unseen by the page. Bytes keep passing through nginx, and the server learns the browser is still there. The same one-process limit as section 72 applies: a customer on web1 and a driver on web3 do not see each other.
 
-C sends "where are you?" (14 characters):
+## 77. WebSocket Clients, Servers and Libraries
 
-```text
-1. C's page JS        ws.send("where are you?")
-2. C's browser        builds a piece: text, scrambled, length 14, sends it
-3. nginx              copies the bytes to web2's connection
-4. ws on web2         reads the piece, removes the scrambling,
-                      runs the "message" handler of socketC with data = "where are you?", isBinary = false
-5. the shop's code    goes through rooms.get("57") = { socketC, socketD }
-                        socketC: same as the sender, skipped
-                        socketD: socketD.send(data, { binary: false })
-6. ws on web2         builds a piece: text, not scrambled, length 14, writes it on D's connection
-7. D's app            onmessage gets "where are you?"
-```
-
-When D replies "on my way", the same steps run the other way. The handler of socketD runs, skips socketD, and sends to socketC.
-
-### Keeping a Silent Chat Open
-If nobody types for an hour, nginx's 1-hour limit closes the connection. The piece kinds include two for this: **ping** and **pong**. The server sends a ping piece every 30 s with `socket.ping()`, and the browser answers each one with a pong piece by itself. The page's JavaScript never sees them. Bytes keep passing through nginx, and the server also learns that the browser is still there.
-
-### Who Does What
-```text
-page JS        new WebSocket(...), send(), onmessage, onclose
-browser        TCP connection, GET with Upgrade + key, checks Accept, builds and scrambles pieces,
-               reads pieces, answers pings
-nginx (P)      adds Upgrade/Connection lines for web2, then copies bytes both ways
-ws library     checks the request, writes 101, reads/writes pieces, removes scrambling
-shop's code    decides what to do with each message (here: pass it to the other side)
-```
-
-Same limit as section 100: `rooms` lives in one process's memory. If the customer's WebSocket goes to web1 and the driver's goes to web3, they do not see each other. The servers then need to pass messages between them, which is not covered here.
-
-### The Next Problem
-The code above uses the library `ws`. Other projects use `socket.io`, and Postman has separate options for "WebSocket" and "Socket.IO". What is the difference, and what do "client" and "server" mean when both sides can send at any time?
-
----
-
-## 105. WebSocket Clients, Servers and Libraries
-
-### Client and Server
-The two sides are different only at the start, plus one rule after it. Once the switch is done, both can send whenever they want:
+The two sides differ only at the start, plus one rule after it, the same split as TCP's `connect()` and `listen()`:
 
 ```text
                     client                                    server
-before              connects to an address and port           waits on a port (listen) for connections
+before              connects to an address and port           waits on a port for connections
 the switch          sends GET with Upgrade and the key,       reads the GET, computes Accept, sends 101
                     checks the Accept value
 pieces it sends     must be scrambled                         not scrambled
-after that          sends and receives any time               sends and receives any time
-closing             either side can                           either side can
+after that          sends and receives any time, either side can close
 ```
 
-It is the same split as TCP itself: one side calls `connect()`, the other waits with `listen()`. After the handshake, both are equal.
+The **browser client** is built into every browser, like `fetch()`. **ws** is a Node.js library that gives Node both roles: `new WebSocketServer(...)` (section 76) and `new WebSocket("ws://...")`, for example a script acting as the driver's app for testing. It exists because Node had no WebSocket support for a long time. Node 22 and later include a built-in client, but still no server.
 
-### Where Each Side Comes From
-* **Browser client**: built into the browser. `new WebSocket("ws://...")` is part of every browser, like `fetch()`, so no library is needed.
-* **ws**: a Node.js library that follows the WebSocket rules exactly. It gives Node both roles:
-  * `new WebSocketServer(...)`: the server role. The web2 program in section 104 uses this.
-  * `new WebSocket("ws://...")`: the client role, for a Node.js program that connects to some other WebSocket server, for example a script acting as the driver's phone app for testing.
+**socket.io** is a Node.js library that does not change WebSocket. It sends ordinary WebSocket messages with its own text format inside, the same pattern as every layer so far (HTTP inside TCP's data, DNS inside UDP's data). `socket.emit("chat", "where are you?")` sends the text message `42["chat","where are you?"]`: `4` means "a message" and `2` "a named event" in socket.io's rules, followed by JSON with the name and data. WebSocket only sees a 27-character text message. socket.io adds named messages, built-in rooms, automatic reconnect, and falling back to long polling if WebSocket cannot connect. It uses its own path, `/socket.io/?EIO=4&transport=websocket`, and its own keep-alive messages (`2` and `3`). Its server sits on its own lower library, engine.io, which uses `ws`. **socket.io-client** is the browser side.
 
-`ws` exists because Node.js had no WebSocket support for a long time. Newer Node versions (22 and later) include a built-in `WebSocket` client, but still no built-in server.
-
-### socket.io: Built on Top of WebSocket
-**socket.io** is a Node.js library that does not change the WebSocket rules. It sends ordinary WebSocket messages and puts its own text format inside them. It is the same pattern as every layer so far: HTTP bytes inside TCP's data, DNS bytes inside UDP's data. Here, socket.io's text goes inside a WebSocket message's data:
-
-```text
-TCP data:          [ WebSocket piece header ][ message data                  ]
-message data:                                 42["chat","where are you?"]
-                                              ^ socket.io's format
-```
-
-When a socket.io client sends `socket.emit("chat", "where are you?")`, the WebSocket message text is `42["chat","where are you?"]`. The `4` means "a message" and the `2` means "a named event" in socket.io's own rules, followed by JSON with the name and the data. The WebSocket part only knows "a text message of 27 characters". The socket.io library on each side reads `42` and the JSON.
-
-socket.io adds features on top: named messages (`socket.emit("chat", ...)` instead of plain text), rooms built in, automatic reconnect, and falling back to long polling if WebSocket cannot connect. It also connects to its own path, `/socket.io/?EIO=4&transport=websocket`, and sends its own keep-alive messages (`2` and `3`).
-
-socket.io's server sits on a lower library of its own called engine.io, and engine.io uses `ws` by default for its WebSocket connections.
-
-**socket.io-client** is the matching library for the browser side.
-
-### They Do Not Mix
-A plain WebSocket client cannot talk to a socket.io server, and socket.io-client cannot talk to a plain `ws` server. Each side expects a different format inside the messages. So a socket.io server needs socket.io-client in the browser (or a matching client in another language). That is why Postman has two separate options:
-
-```text
-Postman "WebSocket"    sends and shows plain WebSocket messages
-Postman "Socket.IO"    speaks socket.io's format: you pick an event name and data
-```
-
-### The Next Problem
-Everything so far (HTTP, SSE, WebSocket) travels as readable bytes, and every machine the frames pass through holds them in memory. What stops those machines from reading a password sent in a POST body?
+They do not mix: a plain WebSocket client cannot talk to a socket.io server, nor socket.io-client to a plain `ws` server, because each expects a different format inside the messages. That is why Postman has "WebSocket" (plain messages) and "Socket.IO" (you pick an event name and data) as separate options.
 
 ---
 
-## 106. Anyone on the Path Can Read the Bytes
+# Part 10: TLS
 
-### The Problem
-A customer logs in to bluepizza from a café's Wi-Fi. The browser sends:
+Making the bytes unreadable and proving who the server is: AES, Diffie-Hellman, signatures, certificates and the TLS handshake.
 
-```text
-POST /login HTTP/1.1\r\n
-Host: www.bluepizza.com\r\n
-Content-Type: application/x-www-form-urlencoded\r\n
-Content-Length: 28\r\n
-\r\n
-user=meera&password=tomato42
-```
+---
 
-On the way, the frames pass through or reach:
+## 78. Anyone on the Path Can Read the Bytes
 
-```text
-the air            every wireless chip in range receives the café's air frames (section 50)
-the café's box     holds every frame in memory to do NAT (section 59)
-provider routers   hold every frame in memory to look up the to-IP
-```
-
-Each of these holds the whole frame, data included. Nothing stops any of them from reading `password=tomato42`.
-
-There are three separate problems:
+A customer logs in to bluepizza from a café's Wi-Fi. The browser sends `POST /login` with the body `user=meera&password=tomato42`. On the way, every wireless chip in range receives the café's air frames (section 40), the café's box holds every frame in memory to do NAT (section 50), and every provider router holds every frame to look up the to-IP. Nothing stops any of them from reading the password. There are three separate problems:
 
 ```text
 1. read      a machine on the path reads the password
 2. change    a machine on the path changes bytes, for example the prices in the menu reply
-3. pretend   a machine answers as if it were bluepizza (like the fake DNS answers in section 84)
+3. pretend   a machine answers as if it were bluepizza (like the fake DNS answers in section 58)
 ```
 
-### The Idea
-Before sending, the browser turns the readable bytes into unreadable bytes using a secret value that only it and bluepizza's server know. The server turns them back using the same value. Machines on the path see only the unreadable bytes.
+**The idea** is the encryption from section 40, now done by the programs instead of the wireless chip. The browser turns readable bytes into unreadable ones with a secret value, the **key**, that only it and bluepizza's server know, and the server turns them back. Machines on the path see only unreadable bytes. Using the same key for both directions is **symmetric** encryption.
 
-* The secret value is called a **key**.
-* Turning readable bytes into unreadable ones is **encryption**. Turning them back is **decryption**.
-* Using the same key for both is called **symmetric** encryption.
+The WebSocket mask (section 75) is not this: it is written in the piece itself, so anyone can reverse it. Even a secret 4-byte key repeated with XOR fails: a machine on the path knows a request starts with `POST`, XORs the first 4 unreadable bytes with `P`, `O`, `S`, `T`, and gets the key.
 
-### Why the WebSocket Mask Is Not This
-The mask (section 103) used XOR with 4 bytes, but the mask was written in the piece itself, so anyone could reverse it. It was never meant to hide anything.
+**AES** (Advanced Encryption Standard) is the method used in practice. It takes 16 readable bytes and a key (16, 24 or 32 bytes; 16 and 32 are common) and gives 16 unreadable bytes. The same key turns them back. Longer data is handled 16 bytes at a time.
 
-Even if the 4 bytes were kept secret, XOR with a short repeated key would not be enough. Say the browser XORs everything with 4 secret bytes k1 k2 k3 k4, repeated. A machine on the path knows an HTTP request starts with `POST`. It XORs the first 4 unreadable bytes with `P`, `O`, `S`, `T` and gets k1 k2 k3 k4. Now it can turn everything back.
+* **It is an algorithm**, a fixed list of steps that any program can run in ordinary code. With a 16-byte key it repeats one round 10 times (12 for 24 bytes, 14 for 32). Each round replaces every byte using a fixed table, moves bytes to new positions, mixes groups of 4 bytes, and XORs the result with bytes made from the key.
+* **Why it is safe:** the rounds mix the bytes so that even someone who knows the readable bytes and sees the unreadable ones cannot work out the key, except by trying every key. A 16-byte key has 2^128, about 3.4 × 10^38.
+* **It has not changed since 2001.** That is the point of a standard: every program must turn the same input and key into the same output, or the two sides could not understand each other. No practical way to break it has been found. What has changed is how AES is applied to data longer than 16 bytes, and how a change on the way is detected (section 82).
+* Since about 2010, Intel, AMD and phone processors have instructions that each do one entire AES round, so encryption takes very little time compared with sending.
 
-### AES
-The method used in practice is **AES**, the **Advanced Encryption Standard**.
+## 79. Agreeing on a Key in Front of Everyone
 
-```text
-input     16 readable bytes + a key (16, 24 or 32 bytes; 16 and 32 are the common ones)
-output    16 unreadable bytes
-reverse   the same key turns the 16 unreadable bytes back into the readable ones
-```
+AES needs both sides to have the same key, but they have never talked before, and every byte between them can be read. They need to end up with the same secret number anyway.
 
-Longer data is handled 16 bytes at a time.
-
-**It is an algorithm**: a fixed list of steps. For a 16-byte key, it repeats one round 10 times (12 times for a 24-byte key, 14 for a 32-byte key). Each round replaces every byte using a fixed table, moves bytes to new positions, mixes groups of 4 bytes together, and XORs the result with bytes made from the key. Any program can do these steps in ordinary code, in any language.
-
-**Why it is safe**: the rounds mix the bytes so that even someone who knows the readable bytes and sees the unreadable ones cannot work out the key. The only way is to try every possible key. With a 16-byte key there are 2^128 of them, about 3.4 × 10^38.
-
-**Where it came from**: in 2001, NIST, the US government's standards office, chose it after a public competition. The winning design was called Rijndael, made by two Belgian researchers, Joan Daemen and Vincent Rijmen. AES is that design under its official name.
-
-**It has not changed since 2001.** That is the point of a standard: every program has to turn the same input and key into the same output, or the two sides could not understand each other. No practical way to break it has been found. What has changed over the years is how AES is applied to data longer than 16 bytes, and how a change to the bytes on the way is detected (section 111).
-
-**Special processor instructions**: a processor runs a fixed set of basic operations called instructions, like add two numbers, compare, or load from memory. In ordinary code, one AES round takes dozens of them. Around 2010, Intel and AMD added instructions that each do one entire AES round on 16 bytes (Intel calls them AES-NI). Phone processors (ARM) added similar ones. With them, one processor core can encrypt roughly several gigabytes per second (exact numbers not checked), so encryption takes very little time compared with sending the bytes.
-
-### The Next Problem
-AES works only if the browser and bluepizza's server already share the same secret key. They have never communicated before, and every byte they send each other passes through machines that can read it. How can they agree on a key that those machines cannot learn?
-
----
-
-## 107. Agreeing on a Key in Front of Everyone
-
-### What Is Needed
-The browser and the server should end up with the same secret number, while every byte they send each other can be read by machines on the path.
-
-### One Piece of Math: Remainder
-`x mod n` means the remainder after dividing x by n. For example, `25 mod 23 = 2`, because 25 = 1 × 23 + 2.
-
-### The Exchange, With Small Numbers
-Two numbers are public, written in the rules, and everyone knows them: **23** and **5**.
+One piece of math: `x mod n` is the remainder after dividing x by n, so `25 mod 23 = 2`. Two numbers are public, written in the rules: **23** and **5**.
 
 ```text
 step                                   browser                        server
@@ -5393,185 +1940,67 @@ step                                   browser                        server
 4. compute (received)^secret mod 23    19^6 mod 23 = 2                8^15 mod 23 = 2
 ```
 
-Both end up with **2**. Neither 6 nor 15 was ever sent.
+Both get **2**, and neither 6 nor 15 was sent. The browser computed (5^15)^6 and the server (5^6)^15, which are both 5^90, and the remainder steps do not change that.
 
-**Why both get the same number**: the browser computed (5^15)^6 and the server computed (5^6)^15. Both are 5^(6×15) = 5^90, and the remainder steps do not change that. So both get 5^90 mod 23 = 2.
+A machine on the path sees 23, 5, 8 and 19. To get 2 it needs a secret: an x where `5^x mod 23 = 8`. With small numbers it tries x = 1, 2, 3, ... and finds 6. With real sizes, about 600 digits, trying every x would take longer than any computer could run, and no faster general method is known. Forward is fast, backward is not.
 
-### What a Machine on the Path Sees
-It sees 23, 5, 8 and 19. To get 2, it needs one of the secrets: a number x where `5^x mod 23 = 8`. With these small numbers it can try x = 1, 2, 3, ... and find 6 within a few tries.
+This is the **Diffie–Hellman key exchange** (Whitfield Diffie and Martin Hellman, 1976). These notes call the sent values, 8 and 19, the **exchange values**. TLS today mostly uses a version called **X25519**, with different math and 32-byte secrets and exchange values. The shared result goes through a fixed calculation that turns it into the AES key.
 
-With real sizes, the numbers are about 600 digits long. Trying every x would take longer than any computer could run, and no faster general method is known. Computing `5^x mod n` forwards is fast. Going backwards from the result to x is not.
+## 80. Proving Who Sent a Value
 
-### Names
-This is the **Diffie–Hellman key exchange**, published by Whitfield Diffie and Martin Hellman in 1976. These notes call the two values that are sent (8 and 19 here) the **exchange values**.
-
-TLS today mostly uses a version of the same idea called **X25519**. It uses a different kind of math, and its secret numbers and exchange values are 32 bytes each instead of 600-digit numbers. The shared result is then put through a fixed calculation that turns it into the AES key.
-
-### The Next Problem
-This stops a machine that only reads. But a machine M on the path can also change bytes. M can do its own exchange with the browser (pretending to be the server) and its own with the server (pretending to be the browser):
+**M in the middle.** Diffie–Hellman stops a machine that only reads. But a machine M on the path can also change bytes. M does its own exchange with the browser, pretending to be the server, and another with the server, pretending to be the browser:
 
 ```text
 browser  <--- key 1 --->  M  <--- key 2 --->  server
 ```
 
-M decrypts everything from the browser with key 1, reads it, encrypts it again with key 2 and sends it on. Neither side notices. How can the browser know that the exchange value it received really came from bluepizza's server and not from M?
+M decrypts everything from the browser with key 1, reads it, encrypts it again with key 2 and passes it on. Neither side notices. What is needed: something bluepizza's server attaches to its exchange value that only it could have made, and that the browser can check.
 
----
-
-## 108. Proving Who Sent a Value
-
-### What Is Needed
-A way for bluepizza's server to attach something to its exchange value that only bluepizza's server could have made, and that the browser can check.
-
-### A Pair of Keys
-bluepizza's server has two keys that were made together as a pair:
-
-```text
-PRIV-B    private key: stays on bluepizza's server, never sent to anyone
-PUB-B     public key:  anyone can have a copy
-```
-
-There are two fixed calculations that every program knows:
+**A pair of keys.** bluepizza's server has two keys made together: **bluepizza's private key**, which never leaves the server, and **bluepizza's public key**, which anyone may have. Two fixed calculations are known to every program:
 
 ```text
 sign(message, private key)                 -> signature (some bytes)
 check(message, signature, public key)      -> yes or no
 ```
 
-The rule: `check` says **yes** only if the signature was made by `sign` on exactly that message, with the private key that belongs to that public key.
-
-### Example 1: Normal
-bluepizza's server wants to send the message "my value is 19".
+`check` says **yes** only if the signature was made by `sign` on exactly that message, with the private key that belongs to that public key.
 
 ```text
-server:   sign("my value is 19", PRIV-B)  -> SIG-1
-sends:    "my value is 19" + SIG-1
-browser:  check("my value is 19", SIG-1, PUB-B)  -> yes
+normal:          server signs "my value is 19" with bluepizza's private key -> signature 1
+                 browser: check("my value is 19", signature 1, bluepizza's public key) -> yes
+M changes it:    check("my value is 10", signature 1, bluepizza's public key) -> no   (signed "19", not "10")
+M signs it:      check("my value is 10", M's signature, bluepizza's public key) -> no (made with M's private key)
+M wants a yes:   needs sign("my value is 10", bluepizza's private key), which never leaves bluepizza's server
 ```
 
-### Example 2: M Changes the Message
-M changes it to "my value is 10" and keeps SIG-1.
+A **signature** is bytes attached to a message showing which private key made them and that the message has not changed since. Unlike the TCP checksum (section 27), which anyone can recompute after changing bytes, only the private key's holder can make one. In TLS the server signs not one number but 32 bytes calculated from its copy of all handshake messages so far, including both exchange values (with SHA-256, the same kind of calculation as SHA-1 in section 74). If M changed any of them, `check` says no (section 82).
 
-```text
-browser:  check("my value is 10", SIG-1, PUB-B)  -> no    (SIG-1 was made for "19", not "10")
-```
+The checking key is the **public key**, the signing key the **private key**, which has nothing to do with private IP addresses. A common signing method is **RSA** (Rivest, Shamir and Adleman, 1977). TLS also allows methods built on the same kind of math as X25519. The math inside `sign` and `check` is not covered here.
 
-### Example 3: M Signs With Its Own Key
-M has its own pair, PRIV-M and PUB-M.
+## 81. Someone the Browser Already Trusts
 
-```text
-M:        sign("my value is 10", PRIV-M)  -> SIG-M
-browser:  check("my value is 10", SIG-M, PUB-B)  -> no    (made with PRIV-M, not PRIV-B)
-```
+The browser needs bluepizza's public key to run `check`. If the server sends it during the connection, M can replace it with its own and sign with its own private key. So the browser cannot trust a public key that arrives over M's path. It can trust a public key **signed by someone whose public key it already has**, if it got that key before any connection, not over the network.
 
-### Example 4: M Wants a "Yes" for Its Own Message
-It would need `sign("my value is 10", PRIV-B)`. M cannot do that, because PRIV-B never leaves bluepizza's server.
+**The list.** Every operating system or browser comes with public keys from a small number of organizations, the **certificate authorities (CAs)**: on Ubuntu a set of files under `/etc/ssl/certs/`, and Firefox keeps its own list. It has around 150 entries. One is **Let's Encrypt**, a non-profit that signs for free.
 
-### What a Signature Is
-A **signature** is bytes attached to a message that show two things: which private key made them, and that the message has not been changed since.
-
-Compare it with the TCP checksum (section 76). If M changes bytes, M can just recompute the checksum, because anyone can. A signature can only be made by whoever holds the private key.
-
-### How It Is Used Here
-In practice the signed message is not one number. The server takes its copy of all the handshake messages so far, including both exchange values, runs a fixed calculation that turns them into 32 bytes (SHA-256, the same kind of calculation as SHA-1 in section 102), and signs those 32 bytes. If M changed any of those messages, `check` says no. Section 111 shows exactly which messages.
-
-### Names
-The checking key is the **public key**, and the signing key is the **private key**. This "private" has nothing to do with private IP addresses. One common signing method is **RSA**, from Rivest, Shamir and Adleman, 1977. TLS also allows other methods, built on the same kind of math as X25519. The math inside `sign` and `check` is not covered here.
-
-### The Next Problem
-The browser needs bluepizza's public key to run `check`. If the server sends it during the connection, M can replace it with PUB-M and sign with PRIV-M. The check then passes, for M. How can the browser know which public key really belongs to `www.bluepizza.com`?
-
----
-
-## 109. Someone the Browser Already Trusts
-
-### The Idea
-The browser cannot trust a public key that arrives over the same path as M. But it can trust a public key that was **signed by someone whose public key it already has**, if it got that key before any connection, not over the network.
-
-### The List Inside the Browser
-Every operating system or browser comes with a list of public keys from a small number of organizations. On Ubuntu the list is a set of files under `/etc/ssl/certs/`. Firefox keeps its own list. These organizations are called **certificate authorities (CAs)**. The list has around 150 entries (exact count not checked). One example is **Let's Encrypt**, a non-profit that signs for free.
-
-### The Key Pair Is Made on bluepizza's Server
-The CA never makes or gives out bluepizza's private key. bluepizza's server makes its own pair and sends only the public key to the CA:
-
-```text
-1. on bluepizza's server   a program (usually certbot, Let's Encrypt's tool) makes a key pair
-                           private key -> saved in a file on the server's disk, never sent anywhere
-                           public key  -> put into the request to the CA
-2. CA                      checks that the request comes from whoever runs the name (below)
-3. CA -> server            sends back the certificate: the name + the public key, signed by the CA
-```
-
-### What the CA Checks Before Signing
-The request says "the public key for `www.bluepizza.com` is PUB-B, please sign that." Let's Encrypt has to make sure the request comes from whoever runs `www.bluepizza.com`:
-
-1. Let's Encrypt replies with a random text, for example `k7Qz...`.
-2. bluepizza's server must make that text available at `http://www.bluepizza.com/.well-known/acme-challenge/...`.
-3. Let's Encrypt looks up `www.bluepizza.com` in DNS itself, sends a GET to that path, and checks that the text is there.
-
-Only whoever controls the real server for that name can do step 2.
-
-### The Certificate
-Then Let's Encrypt signs a small document with its own private key:
+**Getting signed.** The CA never makes or sees bluepizza's private key. On bluepizza's server, a program, usually certbot (Let's Encrypt's tool), makes the key pair, saves the private key to disk and sends only the public key in a request: "here is the public key for `www.bluepizza.com`, please sign that". Let's Encrypt must check that the request comes from whoever runs that name. It replies with a random text, for example `k7Qz...`. bluepizza's server must make that text available at `http://www.bluepizza.com/.well-known/acme-challenge/...`. Let's Encrypt looks up the name in DNS itself, GETs that path, and checks the text. Only whoever controls the real server can do that. Then it signs a small document with its own private key:
 
 ```text
 name            www.bluepizza.com
-public key      PUB-B
+public key      bluepizza's public key
 valid from      2026-10-01
 valid until     2026-12-30
 signed by       Let's Encrypt
 signature       made with Let's Encrypt's private key over all the lines above
 ```
 
-This signed document is a **certificate**. Let's Encrypt's certificates are valid for 90 days. Whether that has changed is not checked.
+This signed document is a **certificate**. Let's Encrypt's are valid for 90 days.
 
-### Two Separate Checks: Signature and Name
-A passing signature check does not mean the name is correct. They are two separate checks, and both have to pass.
+**Signature and name are two separate checks**, and both must pass. The signature check means "these exact bytes were signed by this CA and not one byte has changed": the browser runs SHA-256 over the certificate's lines (X), uses the CA's public key on the signature (Y), and compares X with Y. It says nothing about which name the browser wanted. Say M runs `www.badsite.com` and got a real certificate for it. Unchanged, its signature passes but the name fails. If M edits the name to `www.bluepizza.com`, X changes, Y does not, and the signature fails. Only a certificate Let's Encrypt signed for `www.bluepizza.com` passes both, and it gives one only to whoever controls bluepizza's real server.
 
-**The signature check** means: "these exact bytes were signed by this CA, and not one byte has changed since." It is done in three steps:
+**The certificate alone proves nothing.** It is public, and anyone, M included, can copy it. What proves the server is bluepizza's is the signature over the handshake (section 80), which needs the private key file. With certbot the files are `/etc/letsencrypt/live/www.bluepizza.com/privkey.pem` (the private key) and `fullchain.pem` (the certificate plus the intermediate's, below), and nginx points to them with `ssl_certificate_key` and `ssl_certificate`.
 
-```text
-1. browser runs SHA-256 over the certificate's lines (name, key, dates)    -> 32 bytes, call it X
-2. browser uses the CA's public key on the signature                       -> 32 bytes, call it Y
-3. X equals Y?  yes -> pass,  no -> fail
-```
-
-**What it does not tell**: which name the browser wanted. Say M runs `www.badsite.com` and got a real certificate for it from Let's Encrypt:
-
-```text
-M's certificate            name: www.badsite.com, signed by Let's Encrypt
-signature check            passes: Let's Encrypt really signed exactly these bytes
-name check                 browser asked for www.bluepizza.com, certificate says www.badsite.com -> fail
-```
-
-If M edits the name in its certificate to `www.bluepizza.com`, step 1 gives a different X, but the signature still gives the old Y. X is not Y, so the signature check fails. So each option fails one check:
-
-```text
-M's certificate unchanged    signature passes, name fails
-M's certificate edited       name passes, signature fails
-```
-
-Only a certificate that Let's Encrypt signed for `www.bluepizza.com` passes both, and Let's Encrypt gives one only to whoever controls bluepizza's real server.
-
-### The Certificate Alone Proves Nothing
-A certificate is public. Anyone can copy it, including M. What proves the server is bluepizza's is the signature over the handshake (section 108), which needs the private key file. M can send bluepizza's certificate, but without the private key it cannot make that signature.
-
-With certbot, the two files end up here:
-
-```text
-/etc/letsencrypt/live/www.bluepizza.com/privkey.pem     the private key (made on this server)
-/etc/letsencrypt/live/www.bluepizza.com/fullchain.pem   the certificate + the intermediate's (below)
-```
-
-In nginx, two lines point to them:
-
-```text
-ssl_certificate      /etc/letsencrypt/live/www.bluepizza.com/fullchain.pem;
-ssl_certificate_key  /etc/letsencrypt/live/www.bluepizza.com/privkey.pem;
-```
-
-### The Chain
-The CA's own private key is valuable. If it were stolen, the thief could sign certificates for any name. So the CA keeps that key on machines that are not connected to any network, and uses it only rarely, to sign a certificate for a second key pair called an **intermediate**. The intermediate's key signs the site certificates every day.
+**The chain.** A stolen CA private key could sign certificates for any name. So the CA keeps it on machines with no network and uses it rarely, only to sign a certificate for a second key pair, the **intermediate**, whose key signs site certificates every day:
 
 ```text
 ISRG Root X1 (Let's Encrypt's key in the browser's list)
@@ -5579,64 +2008,22 @@ ISRG Root X1 (Let's Encrypt's key in the browser's list)
                 signs ->  www.bluepizza.com certificate
 ```
 
-The server sends its own certificate plus the intermediate's. The browser checks each signature up the chain until it reaches a key in its list. The key in the list is called the **root**.
+The server sends its certificate plus the intermediate's, and the browser checks each signature up the chain to a key in its list, the **root**.
 
-### The Next Problem
-There are now four parts: AES, Diffie–Hellman, the signature and the certificate. How do they fit together?
+## 82. The TLS Handshake, Step by Step
 
----
+**Names for the values:**
 
-## 110. The Four Parts Together
+* **Exchange value:** what each side sends in the Diffie–Hellman step, like 8 and 19 in section 79, made from a secret number never sent.
+* **The key:** the AES key both compute from the two exchange values.
+* **bluepizza's certificate:** the CA-signed document with its name and public key.
+* **bluepizza's handshake signature:** the server's signature, with its private key, over its copy of all handshake messages so far.
+* **Finished check:** a short value each side computes from the key and its copy of all handshake messages. If the other side computes the same value, both have the same key and saw the same messages. It has nothing to do with TCP's FIN.
 
-### Each Part Fixes the Problem Left by the One Before
-```text
-1. AES                makes the data unreadable on the path.
-                      Problem: both sides need the same secret key first.
+**Short answers.** It runs after the TCP handshake (section 25), before any HTTP. It runs inside the program as a library, not in the kernel: nginx and Node.js use OpenSSL, Chrome uses BoringSSL, Firefox uses NSS. The kernel sees ordinary TCP data it cannot read. It is a protocol, **TLS** (Transport Layer Security). The current version, TLS 1.3, was published in 2018 (RFC 8446). It does not fit the layer numbering cleanly (section 31): it sits above TCP and below HTTP, and some call it layer 6. It takes 1 round trip after TCP's (TLS 1.2 needed 2). A **trip** is bytes going one way, say 25 ms. A **round trip** is there and back, 50 ms. Counting round trips means counting how often one side must stop and wait for an answer.
 
-2. Diffie-Hellman     gives both sides the same secret number (the 2 in section 107),
-                      without sending it. That number becomes the AES key.
-                      Problem: M in the middle can do this exchange with each side separately.
+**Who is who:**
 
-3. Signature          bluepizza's server signs the values it sent, using its private key.
-                      The browser checks them with bluepizza's public key.
-                      Problem: how does the browser get bluepizza's real public key?
-
-4. Certificate        a document saying "this public key belongs to www.bluepizza.com",
-                      signed by a CA whose public key is already in the browser's list.
-```
-
-Read from the bottom up: the certificate gives the browser bluepizza's real public key. With it, the browser checks the signature, which proves the exchange values came from bluepizza and not from M. The exchange gives both sides the same secret. That secret is the AES key, and AES makes all the HTTP bytes unreadable.
-
-### The Values, in Plain Words
-The next sections use these names:
-
-* **Exchange value**: what each side sends in the Diffie–Hellman step, like the 8 and the 19 in section 107. Each is made from a secret number that is never sent.
-* **The key**: the AES key both sides compute from the two exchange values.
-* **bluepizza's certificate**: the CA-signed document with bluepizza's name and public key.
-* **bluepizza's handshake signature**: bluepizza's server signs its copy of all handshake messages so far with its private key.
-* **Finished check**: a short value each side computes from the key and its copy of all handshake messages. If the other side computes the same value, both have the same key and saw the same messages. It has nothing to do with TCP's FIN.
-
-### The Next Problem
-All of this has to happen at the start of the connection, before any HTTP is sent. In what order are these values sent, who sends them (the browser program or the kernel), and how many round trips does it take?
-
----
-
-## 111. The TLS Handshake, Step by Step
-
-### Short Answers First
-* **When**: after the TCP handshake (section 74), before any HTTP.
-* **Kernel?** No. It runs inside the program, as a library. nginx and Node.js use one called OpenSSL, Chrome uses BoringSSL, and Firefox uses NSS. The kernel sees these bytes as ordinary TCP data and cannot read them.
-* **A protocol?** Yes. It has its own rules for which bytes go where and what each side does. Its name is **TLS**, **Transport Layer Security**. The current version, TLS 1.3, was published in 2018 (RFC 8446).
-* **OSI layer?** It does not fit the numbering cleanly (section 80). It sits between TCP (4) and HTTP (7). Some call it layer 6, others count it as part of the application. Either way: above TCP, below HTTP.
-* **Round trips**: 1 for TLS 1.3, after TCP's 1. The older version 1.2 needed 2.
-
-### Trip and Round Trip
-* A **trip** is bytes going one way, laptop to server or server to laptop. Say it takes 25 ms.
-* A **round trip** is there and back: one side sends something and waits for the answer. That is 50 ms.
-
-Counting round trips means counting how many times one side has to stop and wait for an answer before it can continue.
-
-### Who Is Who
 ```text
 laptop                                         server (P)
 page JavaScript       the shop's page code     nginx's HTTP part    reads requests, writes replies
@@ -5645,92 +2032,33 @@ browser's TLS part    library in the browser   server kernel        TCP, IP
 laptop kernel         TCP, IP
 ```
 
-The TLS parts are code inside the browser program and inside the nginx program:
+In each program, the HTTP part writes `GET /menu ...` and reads readable replies. The TLS part encrypts on the way down and decrypts on the way up. The kernel only carries the TLS bytes as TCP data. Both sides keep a readable copy of every handshake message sent and received: the browser's hello, the server's hello and the certificates. The server signs its copy and the browser checks against its own. If M changed the server's exchange value on the way, the copies differ and `check` says no.
 
-```text
-the program's HTTP part   writes "GET /menu HTTP/1.1 ..."         reads the readable reply
-the program's TLS part    encrypts it                             decrypts back into HTTP bytes
--------------------- program / kernel boundary --------------------
-kernel (TCP, IP)          sends the TLS bytes as TCP data         gives received TCP data to the TLS part
-```
-
-### Copies of the Handshake Messages
-Both sides keep a copy of every handshake message they sent and received, in readable form:
-
-```text
-server's copy:   [browser's hello][server's hello][certificates]
-browser's copy:  [browser's hello][server's hello][certificates]
-```
-
-The server signs its copy. The browser checks against its own copy. If M changed anything on the way, for example the server's exchange value, the browser's copy holds M's value while the server signed its real one, so `check` says no.
-
-### The Whole Connection
-**TCP handshake: round trip 1, 0–50 ms**
+**TCP handshake, round trip 1, 0–50 ms.**
 
 1. Page JavaScript calls `fetch("https://www.bluepizza.com/menu")`.
 2. The browser's HTTP part asks the laptop kernel to connect to `198.51.100.7` port 443.
-3. The laptop kernel sends SYN. The server kernel replies SYN+ACK. The laptop kernel sends ACK right away, in its own frame, and only then does `connect()` return to the browser.
+3. The kernels exchange SYN and SYN+ACK. The laptop kernel sends the ACK at once in its own frame, and only then does `connect()` return.
 
-**TLS handshake starts: round trip 2, 50–100 ms**
+**TLS handshake, round trip 2, 50–100 ms.**
 
-4. The browser's TLS part picks a secret number and computes its exchange value. It writes a hello message to the laptop kernel: "I want `www.bluepizza.com`, I can use AES, here is my exchange value." This is readable, because no key exists yet.
-5. The laptop kernel sends it as TCP data, in the frame after the ACK:
+4. The browser's TLS part picks a secret number, computes its exchange value, and writes a readable hello (no key exists yet): "I want `www.bluepizza.com`, I can use AES, here is my exchange value".
+5. The laptop kernel sends it as TCP data, in the frame after the ACK: `[MAC][IP: to 198.51.100.7][TCP: to port 443, ACK+PSH][TLS header: type 22 handshake, length ~300][hello][CRC]`.
+6. nginx's TLS part picks its own secret number, computes its exchange value, and computes **the key**.
+7. nginx's TLS part writes four messages: its hello with its exchange value (readable, since the browser has no key yet), then encrypted with the key: bluepizza's certificate and the intermediate's, the handshake signature, and its Finished check. That is about 3,000 bytes, so 3 frames at 1,460 data bytes each (section 28).
+8. The browser's TLS part computes **the key** from the server's exchange value and its own secret, decrypts the rest, and checks the certificate, the handshake signature and the Finished check (section 83). If any fails, it closes the connection.
 
-   ```text
-   [MAC group][IP group: to 198.51.100.7][TCP group: to port 443, ACK+PSH][TLS header: type 22 handshake, length ~300][hello, readable][CRC]
-   ```
+**Handshake ends and HTTP starts, round trip 3, 100–150 ms.**
 
-6. The server kernel gives the bytes to nginx's TLS part. nginx's TLS part picks its own secret number, computes its exchange value, and computes **the key**.
-7. nginx's TLS part writes four messages to the server kernel:
+9. The browser's TLS part writes its own encrypted Finished check.
+10. The browser's HTTP part writes the readable request, `GET /menu HTTP/1.1\r\nHost: www.bluepizza.com\r\n\r\n` (47 bytes), to its TLS part, which encrypts it.
+11. The laptop kernel sends the Finished check and the request: `[TLS header: type 23][Finished check]` and `[TLS header: type 23, length 64][64 unreadable bytes]`.
+12. nginx's TLS part checks the browser's Finished check, reads the next record's length, checks its TAG (below), decrypts the 47 request bytes, and gives them to nginx's HTTP part.
+13. nginx's HTTP part writes the reply, which nginx's TLS part encrypts. The browser's TLS part decrypts it, and `fetch` returns the body to the page.
 
-   ```text
-   server's hello: "here is my exchange value"    readable (the browser has no key yet)
-   bluepizza's certificate + intermediate's       encrypted with the key
-   bluepizza's handshake signature                encrypted with the key
-   server's Finished check                        encrypted with the key
-   ```
+The lone ACK in step 3 adds no wait. A round trip counts when one side must receive an answer before sending again. An ACK is never answered (section 25), and the hello needs nothing back first, so it follows the ACK at about 50 ms. Without TLS the reply would arrive at 100 ms. TLS adds one round trip.
 
-   These are about 3,000 bytes. A frame carries at most 1,460 data bytes (section 77), so the server kernel sends them in 3 frames.
-8. The laptop kernel puts the bytes in order and gives them to the browser's TLS part, which:
-   * computes **the key** from the server's exchange value and its own secret number
-   * decrypts the certificates, the signature and the Finished check
-   * checks the certificate, then the handshake signature, then the Finished check (section 112)
-   * if any check fails, closes the connection
-
-**TLS handshake ends; HTTP starts: round trip 3, 100–150 ms**
-
-9. The browser's TLS part writes its own Finished check, encrypted. The TLS handshake is done on the browser's side.
-10. The browser's HTTP part writes the readable request to the browser's TLS part:
-
-    ```text
-    GET /menu HTTP/1.1\r\nHost: www.bluepizza.com\r\n\r\n        (47 bytes)
-    ```
-
-11. The browser's TLS part encrypts it (details below) and writes it to the laptop kernel.
-12. The laptop kernel sends the Finished check and the request:
-
-    ```text
-    [MAC group][IP group][TCP group: to port 443][TLS header: type 23, length ..][Finished check, unreadable]
-                                                 [TLS header: type 23, length 64][64 unreadable bytes][CRC]
-    ```
-
-13. The server kernel gives the bytes to nginx's TLS part. It checks the browser's Finished check, then reads the next record's length (64), checks the TAG, and decrypts back to the 47 request bytes. It gives those to nginx's HTTP part.
-14. nginx's HTTP part reads `GET /menu` and writes the readable reply. nginx's TLS part encrypts it the same way, and the server kernel sends it.
-15. The browser's TLS part decrypts the reply and gives the readable HTTP bytes to the browser's HTTP part. That part gives the body to page JavaScript, and `fetch` returns.
-
-### Why the Lone ACK Adds No Wait
-A round trip is counted when one side has to receive an answer before it can send its next message. No answer to an ACK is ever sent (an ACK is never acked, section 74), and the laptop does not need anything back before sending the hello:
-
-```text
-0 ms      laptop kernel sends SYN
-50 ms     SYN+ACK arrives; laptop kernel sends ACK
-~50 ms    browser's TLS part writes the hello; laptop kernel sends it right after the ACK
-75 ms     server receives the ACK, then the hello
-100 ms    server's hello, certificates, etc. arrive at the laptop
-```
-
-### What Literally Gets Encrypted
-For the request in step 11:
+**What literally gets encrypted** for the request:
 
 ```text
 input to AES:   the 47 request bytes + 1 byte meaning "this is HTTP data"   = 48 readable bytes
@@ -5739,171 +2067,67 @@ adds header:    type 23, version, length 64                                 = 5 
 written to the laptop kernel: 69 bytes
 ```
 
-The **TAG** is computed from the key and the encrypted bytes. The receiver recomputes it. If M changed even one byte, the TAG does not match and the receiver closes the connection. M cannot make a new TAG because it does not have the key. This solves problem 2 from section 106 (change).
+The **TAG** is computed from the key and the encrypted bytes. The receiver recomputes it, and if even one byte was changed it does not match and the connection is closed. M cannot make a new TAG without the key. This solves problem 2 from section 78 (change). The server's encrypted handshake messages are encrypted the same way.
 
-The server's encrypted handshake messages in step 7 are encrypted the same way.
+Steps 4–9 are the **TLS handshake**. HTTP inside TLS is **HTTPS**. In Node.js, the `https` module is `http` with the TLS part between the code and the kernel.
 
-### Round Trips
-```text
-round trip 1   TCP handshake                       0 - 50 ms
-round trip 2   TLS handshake (steps 4 - 8)         50 - 100 ms
-round trip 3   Finished check + request, reply     100 - 150 ms
-```
+**Port 443.** HTTPS uses port 443 and plain HTTP stays on 80, because a server must know what the first bytes on a new connection will be: a binary TLS hello or HTTP text like `GET /`. Many sites run both, but the program on port 80 only replies `301 Moved Permanently` with `Location: https://www.bluepizza.com/...`, telling the browser to repeat the request at the HTTPS address.
 
-Without TLS, the reply would arrive at 100 ms. TLS adds one round trip.
+## 83. The Browser's Checks, One by One
 
-### Names
-* Steps 4–9 are the **TLS handshake**.
-* HTTP inside TLS is **HTTPS**.
-
-In Node.js, this is the difference between the `http` module and the `https` module: `https` is `http` with the TLS part between the code and the kernel.
-
-### Port 443
-HTTPS uses port 443. Plain HTTP stays on 80. They use separate ports because a server has to know what the first bytes on a new connection will be: a TLS hello (binary) or HTTP text like `GET /`.
+The browser's TLS part runs these after decrypting the server's messages, which include two certificates: bluepizza's and the intermediate's (section 81).
 
 ```text
-http://www.bluepizza.com    -> browser connects to port 80, sends HTTP text
-https://www.bluepizza.com   -> browser connects to port 443, starts with a TLS hello
+check                                       how                                                    what it stops
+1. made by a CA in my list?                 1a: check(bluepizza's certificate lines, its           M making up its own certificate for
+                                            signature, the intermediate's public key)             www.bluepizza.com: its signature leads
+                                            1b: check(intermediate's lines, its signature,         to no key in the list
+                                            ISRG Root X1's public key from the built-in list)
+2. is the name the one I asked for?         compare the certificate's names (e.g. bluepizza.com,   M sending its own real certificate for
+                                            www.bluepizza.com) with the address's name             www.badsite.com: check 1 passes, this fails
+3. is today inside the dates?               compare "valid from/until" with the laptop's clock;    old certificates, whose private keys may
+                                            a clock wrong by months fails valid sites              have been stolen or leaked since
+4. did bluepizza's private key holder       check(my copy of the handshake messages, the           M sending bluepizza's real certificate
+   sign this handshake?                     handshake signature, bluepizza's public key)          (no private key to sign with), and M
+                                                                                                   replacing the server's exchange value
+                                                                                                   (my copy then differs from what was signed)
+5. does the server have the same key?       compute the Finished check I expect from the key       a server that ended up with a different key
+                                            and my copy, compare with the server's                 or saw different messages
 ```
 
-Many sites run both, but the program on port 80 only replies `301 Moved Permanently` with a header line `Location: https://www.bluepizza.com/...`, which tells the browser to repeat the request at the HTTPS address.
+Checks 1–4 prove who the server is. Check 5 proves it has the same AES key. In step 12 of section 82, nginx's TLS part does check 5 the other way round with the browser's Finished check, which is how the server finds out if M changed the browser's hello.
 
-### The Next Problem
-Step 8 says "checks the certificate, then the handshake signature, then the Finished check". What exactly does each check compare, and what does each one stop?
+When a check fails, the browser closes the connection and shows a warning page instead of the site. In Chrome, check 1 gives `NET::ERR_CERT_AUTHORITY_INVALID`, check 2 `NET::ERR_CERT_COMMON_NAME_INVALID`, check 3 `NET::ERR_CERT_DATE_INVALID`, and checks 4 and 5 close the connection with an error.
 
----
+## 84. What TLS Bytes Look Like
 
-## 112. The Browser's Checks, One by One
-The browser's TLS part does all of these after decrypting the server's messages. The server sends two certificates: bluepizza's own, and the intermediate's (section 109).
+TLS bytes come in two levels: **records** outside and **messages** inside.
 
-### Check 1: Was bluepizza's Certificate Made by a CA in My List?
-This happens in two hops.
-
-**1a.** bluepizza's certificate says "signed by: Let's Encrypt intermediate".
-
-* The browser takes the intermediate's public key from the intermediate's certificate.
-* It runs `check(bluepizza's certificate lines, the signature at the bottom of it, intermediate's public key)`.
-* Yes means the intermediate signed exactly these lines: this name, this public key, these dates.
-
-**1b.** The intermediate's certificate says "signed by: ISRG Root X1".
-
-* The browser looks for ISRG Root X1 in its own built-in list and takes that public key.
-* It runs `check(intermediate certificate lines, its signature, root's public key from the list)`.
-* Yes means the root signed the intermediate.
-
-**What it stops**: M making up its own certificate for `www.bluepizza.com`. M's signature does not lead to any key in the list.
-
-### Check 2: Is the Name the One I Asked For?
-* A certificate lists the names it covers, for example `bluepizza.com` and `www.bluepizza.com`.
-* The browser compares that list with the name from the address, `www.bluepizza.com`.
-
-**What it stops**: M sending its own real certificate for `www.badsite.com`. Check 1 passes, this one fails.
-
-### Check 3: Is Today Inside the Dates?
-* The browser compares "valid from" and "valid until" with the laptop's clock.
-* If the laptop's clock is wrong by months, valid sites fail this check.
-
-**What it stops**: use of old certificates, whose private keys might have been stolen or leaked since.
-
-### Check 4: Did the Holder of bluepizza's Private Key Sign This Handshake?
-* The browser has its own copy of the handshake messages so far: its hello, the server's hello (with the server's exchange value), and the certificates.
-* It runs `check(its copy, bluepizza's handshake signature, bluepizza's public key from the certificate)`.
-* Yes means whoever signed has bluepizza's private key and saw exactly the same messages, including the same exchange values.
-
-**What it stops**:
-
-* M sending bluepizza's real certificate: M has no private key to sign with.
-* M replacing the server's exchange value: the browser's copy then differs from what bluepizza signed.
-
-### Check 5: Does the Server Have the Same Key?
-* The browser computes the Finished check it expects, from the key and its copy of all handshake messages.
-* It compares that with the server's Finished check it just decrypted.
-* Yes means the server computed the same key and has the same copy of every message.
-
-Checks 1–4 prove who the server is. This one proves that the server ended up with the same AES key the browser has.
-
-### On the Server's Side
-In step 13 of section 111, nginx's TLS part does check 5 the other way round, with the browser's Finished check. That is how the server finds out if M changed the browser's hello on the way.
-
-### When a Check Fails
-The browser closes the connection and shows a warning page instead of the site. In Chrome:
-
-```text
-check 1 fails    NET::ERR_CERT_AUTHORITY_INVALID
-check 2 fails    NET::ERR_CERT_COMMON_NAME_INVALID
-check 3 fails    NET::ERR_CERT_DATE_INVALID
-check 4 or 5     the connection is closed with an error (exact page not checked)
-```
-
-### What M Can Do, All Together
-```text
-reads the bytes                  sees the hello messages (name, exchange values), everything else is unreadable
-replaces the exchange value      check 4 fails: M cannot sign without bluepizza's private key
-sends its own certificate        check 1 or check 2 fails
-sends bluepizza's certificate    check 4 fails
-changes encrypted bytes          the TAG does not match
-```
-
-### The Next Problem
-These notes have shown the IP group, the TCP group and HTTP's text byte by byte. What do TLS's own bytes look like?
-
----
-
-## 113. What TLS Bytes Look Like
-TLS bytes come in two levels: **records** on the outside, and **messages** inside the records.
-
-### Level 1: The Record (the "TLS Group")
-Everything the TLS part writes to the kernel is a sequence of records. Each record is a 5-byte header plus content. This is the length-prefix method from section 82:
+**The record** (the "TLS group"). Everything the TLS part writes is a sequence of records, each a 5-byte header plus content, the length-prefix method from section 32:
 
 ```text
 field     size      meaning
-type      1 byte    22 = handshake message (readable)
-                    23 = encrypted content
+type      1 byte    22 = handshake message (readable), 23 = encrypted content,
                     21 = alert (an error, e.g. "bad certificate", just before closing)
-version   2 bytes   always 3.3, kept so old middle machines do not reject the record;
-                    the real version is given inside the hello
-length    2 bytes   how many content bytes follow (at most 16,384 readable bytes,
-                    plus a little more for the TAG once encrypted)
+version   2 bytes   always 3.3, kept so old middle machines do not reject it; the real version is in the hello
+length    2 bytes   content bytes that follow (at most 16,384 readable bytes, a little more with the TAG)
 content   length    one or more messages, readable or encrypted
 ```
 
-### Level 2: Handshake Messages, Inside the Content
-Level 1's content is a box. Level 2 describes what is inside that box when it holds handshake messages. It is like the IP group and the TCP group: the IP group only says "data follows", and the TCP group's rules describe what that data looks like.
+**Handshake messages** sit inside the content the way a TCP group sits inside the IP group's data, each with its own header: 1 byte type (1 client hello, 2 server hello, 8 extra settings, 11 certificate, 15 handshake signature, 20 Finished check) and 3 bytes length. The browser's hello is a 5-byte record header saying 300 bytes follow, and inside those 300 bytes a 4-byte message header (type 1, length 296) and the 296-byte body. A record can also hold several messages back to back.
 
-Each handshake message has its own small header:
+**The client hello:**
 
-```text
-field     size      meaning
-type      1 byte    1 = client hello      2 = server hello      8 = extra settings
-                    11 = certificate      15 = handshake signature   20 = Finished check
-length    3 bytes   size of the body
-body      length    depends on the type
-```
-
-The browser's hello, nested:
-
-```text
-[record header: type 22, version 3.3, length 300]     <- level 1: 5 bytes
-[content: 300 bytes]                                  <- level 1 only says "300 bytes follow"
-   inside those 300 bytes (level 2):
-   [message type 1, message length 296]               <- 4 bytes
-   [message body: version, random, ..., extensions]   <- 296 bytes
-```
-
-4 + 296 = 300, so this content is exactly one message. The box can also hold several messages back to back, as in the server's encrypted record below.
-
-### The Client Hello, Field by Field
 ```text
 [record: type 22, version 3.3, length ~300]
   [message: type 1 (client hello), length ~296]
     [version 3.3]
     [random: 32 bytes]                         new random bytes for every connection
     [session id: 32 bytes]                     kept only for old middle machines
-    [methods I can use: 13 01, 13 02, 13 03]   13 01 = AES with a 16-byte key
-                                               13 02 = AES with a 32-byte key
-                                               13 03 = ChaCha20, used where the processor has no AES instructions
+    [methods I can use: 13 01, 13 02, 13 03]   AES with a 16-byte key, AES with a 32-byte key,
+                                               ChaCha20 (for processors without AES instructions)
     [compression: none]                        kept only for old machines
-    [extensions, each one = type (2 bytes), length (2 bytes), value:
+    [extensions, each type (2 bytes), length (2 bytes), value:
        server name           www.bluepizza.com
        versions I support    1.3
        key share             X25519 + browser's exchange value (32 bytes)
@@ -5911,34 +2135,22 @@ The browser's hello, nested:
        next protocol         h2, http/1.1]
 ```
 
-* **random**: makes every handshake's copy of messages different, so a signature recorded from an old connection cannot be used again in a new one.
-* **server name**: called **SNI** (Server Name Indication). The server needs it because one server at one IP can run both `www.bluepizza.com` and `www.greencafe.com` (section 86), and it has to know which certificate to send before any HTTP arrives.
-* **next protocol**: how the two sides choose the HTTP version. The browser lists what it can speak, and the server picks one. Its name is **ALPN** (Application-Layer Protocol Negotiation). This is why browsers use HTTP/2 only with encryption (section 89): it is chosen here, inside TLS.
+* **random** makes every handshake's messages different, so a signature recorded from an old connection cannot be reused.
+* **server name** is **SNI** (Server Name Indication). One server at one IP can run `www.bluepizza.com` and `www.greencafe.com` (section 59), and must know which certificate to send before any HTTP arrives.
+* **next protocol** is how the sides choose the HTTP version: the browser lists what it speaks, the server picks. Its name is **ALPN** (Application-Layer Protocol Negotiation), and it is why browsers use HTTP/2 only with encryption (section 62).
 
-### The Server's Messages
+**The server's messages:**
+
 ```text
-[record: type 22]                                              readable
-  [message: type 2 (server hello)]
-    [version 3.3][random: 32 bytes][session id: copied]
-    [method chosen: 13 01]
-    [extensions: version 1.3, key share: X25519 + server's exchange value (32 bytes)]
-
-[record: type 23][~3,000 encrypted bytes + 16-byte TAG]        unreadable on the path; after decryption:
-  [message: type 8  (extra settings)]        e.g. next protocol chosen: h2
-  [message: type 11 (certificate)]           bluepizza's certificate + the intermediate's
-  [message: type 15 (handshake signature)]   signing method + the signature
-  [message: type 20 (Finished check)]        32 bytes
+[record: type 22]                                       readable
+  [message: type 2 (server hello)]  version, random, session id copied, method chosen 13 01,
+                                    extensions: version 1.3, key share: X25519 + server's exchange value
+[record: type 23][~3,000 encrypted bytes + 16-byte TAG] unreadable on the path; after decryption:
+  [type 8 extra settings, e.g. next protocol h2][type 11 certificates][type 15 signature][type 20 Finished, 32 bytes]
   [1 byte: real type = handshake]
 ```
 
-The record's content is one box holding four messages, each with its own type and length.
-
-### After the Handshake
-```text
-[record: type 23, version 3.3, length 64][64 bytes: 48 encrypted + 16-byte TAG]
-```
-
-After decryption, the 48 bytes are the 47 HTTP bytes plus 1 byte giving the **real type**. The outside type is always 23, even when the record holds something else. Some non-HTTP records are still sent after the handshake:
+**After the handshake** every record is `[type 23, version 3.3, length 64][48 encrypted + 16-byte TAG]`. After decryption, the last byte gives the **real type**. The outside type is always 23, so a machine on the path cannot tell what a record holds:
 
 ```text
 real type   what is inside           example after the handshake
@@ -5947,30 +2159,15 @@ real type   what is inside           example after the handshake
 22          handshake message        "new key": switch to a fresh AES key on a long connection
 ```
 
-The receiving TLS part decrypts the content, reads the last byte, and then knows what to do: pass the bytes to HTTP, handle an alert, or handle a handshake message. Because this byte is encrypted too, a machine on the path cannot tell which of these a record is.
+In a frame, TLS records are TCP data, as HTTP was before, and HTTP is now inside the TLS content: `[MAC][IP][TCP][TLS record header][TLS content][CRC]`.
 
-### Where It Sits in a Frame
-```text
-[MAC group][IP group][TCP group][TLS record header][TLS content][CRC]
-```
+**What the school's proxy sees.** With HTTPS, the `Host:` line is encrypted, so F (section 66) cannot read it. F sees the name in two places outside HTTP: the readable SNI in the client hello, and, with the proxy setting on, one short plain request the browser first sends F, `CONNECT www.bluepizza.com:443 HTTP/1.1`, meaning "open a TCP connection to this name and port, then copy bytes both ways". After that, F only copies encrypted bytes.
 
-TLS records are TCP data, the same way HTTP was TCP data before. HTTP is now inside the TLS content, encrypted.
+## 85. Where TLS Ends When There Is a Load Balancer
 
-### What the School's Proxy Sees
-With HTTPS, the `Host:` line is inside the encrypted HTTP, so F (section 93) cannot read it. F sees the name outside HTTP, in two places:
+With HTTPS, the browser does its TLS handshake with whatever answers at `198.51.100.7`. With P or Q (sections 67–68) in front, that is not web1–web4.
 
-1. **The SNI in the client hello.** It is sent before the key exists, so it is readable.
-2. **With the proxy setting on**, the browser first sends F one short plain HTTP request, `CONNECT www.bluepizza.com:443 HTTP/1.1`, which means "open a TCP connection to this name and port, then copy bytes both ways". F reads the name there. After that, F only copies the encrypted bytes.
-
-### The Next Problem
-In sections 94–95, P and Q sit in front of web1–web4. With HTTPS, the browser does its TLS handshake with whatever answers at `198.51.100.7`. Which machine needs the certificate and private key, and can P still read the path to route `/order`?
-
----
-
-## 114. Where TLS Ends When There Is a Load Balancer
-
-### Case 1: P (L7, nginx) Ends TLS
-P has the certificate and private key on its own disk. In nginx's settings file:
+**Case 1: P (L7, nginx) ends TLS.** P has the certificate and private key on its own disk:
 
 ```text
 server {
@@ -5978,120 +2175,40 @@ server {
     server_name www.bluepizza.com;      # these settings are for this name
     ssl_certificate     /etc/letsencrypt/live/www.bluepizza.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/www.bluepizza.com/privkey.pem;
-
     location / {
         proxy_pass http://shop_servers; # send to web1-web4 in plain HTTP
     }
 }
 ```
 
-`ssl` is the old name for TLS. SSL (Secure Sockets Layer) was its earlier version, and nginx kept the word.
+`ssl` is the old name: SSL (Secure Sockets Layer) was TLS's earlier version, and nginx kept the word. The browser's TLS part does the handshake with nginx's TLS part. nginx decrypts `POST /order ...`, its HTTP part picks web4 and adds `X-Forwarded-For`, and P's kernel sends the readable request to web4 on a second connection. The reply is encrypted by nginx for the browser. The TLS connection is browser to P only, and bytes between P and web4 are readable but stay in the shop's local network. This is **TLS termination**. It keeps the certificate and key in one place, lets P read HTTP (route by path, add `X-Forwarded-For`, speak HTTP/2 to the browser), and spares web1–web4 the encryption work. The cost: P sees every password and order, so whoever controls P controls all of that.
 
-One request:
+**Case 2: Q (L4) passes TLS through.** Q only changes the to-IP in each frame (section 68) and has no key, so the TLS records pass unchanged and the TLS connection is browser to web2 directly. Each of web1–web4 then needs the certificate and private key, since the browser could reach any of them. This is **TLS passthrough**. Q still cannot read the path or add `X-Forwarded-For`. But the client hello is readable, so an L4 balancer can read the SNI name and pick a group of servers by it without decrypting anything (in nginx, the `ssl_preread` setting).
 
-```text
-1. browser's TLS part  <-- TLS handshake -->  nginx's TLS part on P
-2. browser's TLS part      sends the encrypted request
-3. nginx's TLS part        decrypts it -> readable "POST /order ..."
-4. nginx's HTTP part       reads the path, picks web4, adds X-Forwarded-For
-5. P's kernel              sends the readable request to 10.0.0.14 port 80, on a second connection
-6. reply comes back        nginx's TLS part encrypts it for the browser
-```
+**Ending TLS without reading HTTP.** These are separate things, since TLS sits below HTTP. On AWS the Application Load Balancer (L7) ends TLS with a certificate stored in AWS. The Network Load Balancer (L4) can pass TLS through like Q, or end TLS itself. When it does, it cannot pass frames on as they arrive: it takes part in the handshake, and must collect every frame of a record (up to about 16 KB) before the TAG check and decryption. Then it writes the readable bytes into its own second connection to the server. So it works like P, two connections and new frames, except that it never reads the HTTP and picks a server once per connection. By section 68's rule, "the highest layer it reads", that is above layer 4. AWS and most people still call it L4, meaning "does not read HTTP and picks once per connection". The pure L4 case is Q with passthrough.
 
-The TLS connection is between the browser and P only. Between P and web4 the bytes are readable, but they only travel inside the shop's local network.
+**TLS between P and the web servers.** `proxy_pass https://shop_servers;` makes nginx do a TLS handshake with web2 (exchange, key, AES) and send HTTP inside it, instead of plain HTTP with `http://`. A TLS 1.3 handshake always includes the key exchange, so "use TLS" means "do the exchange and encrypt" with no separate setting. Both sides must agree: web2's program must listen with TLS, for example Node's `https` module with a key file and a certificate file. A program expecting plain HTTP that receives a TLS hello reads binary bytes instead of `GET /`, and the connection fails.
 
-Ending TLS at the proxy is called **TLS termination**.
-
-**What it gives**:
-
-* The certificate and private key live in one place, P, not on four servers.
-* P can read HTTP, so it can route `/order` to web4, add `X-Forwarded-For`, and speak HTTP/2 to the browser.
-* web1–web4 spend no processor time on encryption.
-
-**What it costs**: P sees every password and order in readable form. Whoever controls P controls all of that.
-
-### Case 2: Q (L4) Passes TLS Through
-Q only changes the to-IP in each frame (section 95). It has no key, so the TLS records go through it unchanged:
-
-```text
-1. browser's TLS part  <-- TLS handshake, through Q -->  TLS part of the program on web2
-2. Q                       sees only [TLS header: type 23][unreadable bytes]
-```
-
-The TLS connection is between the browser and web2 directly. So **each** of web1–web4 needs a copy of the certificate and the private key, because the browser could be sent to any of them.
-
-This is called **TLS passthrough**. Q still cannot read the path, add `X-Forwarded-For`, or route `/order` anywhere specific.
-
-**One thing Q can read**: the client hello is readable, including the SNI name. An L4 balancer can read that name and pick a group of servers by it without decrypting anything. In nginx this is the `ssl_preread` setting.
-
-### Side by Side
-```text
-                           P (TLS termination)          Q (TLS passthrough)
-TLS handshake is with      P                            web1 - web4
-certificate + private key  on P only                    on every web server
-can read path / headers    yes                          no (only the SNI name)
-bytes P/Q -> web server    readable, or a second TLS    the browser's TLS records, unchanged
-```
-
-### Ending TLS Without Reading HTTP
-Ending TLS and reading HTTP are separate things. TLS sits below HTTP, so a machine can decrypt TLS and still never read the HTTP inside.
-
-On AWS, the Application Load Balancer (L7) ends TLS, with the certificate stored in AWS. The Network Load Balancer (L4) can either pass TLS through, like Q, or end TLS itself. When it ends TLS:
-
-* It cannot pass frames along as they arrive. It has to take part in the handshake itself (receive the hello, send its own hello and the certificate over several frames, wait for the browser's Finished check), and a TLS record can be up to about 16 KB spread over many frames. The TAG check needs the whole record, so it collects every frame of a record before decrypting.
-* After decrypting, it writes the readable bytes into its own second connection to the server, and its kernel builds new frames. So it works like P: two TCP connections, new frames. The only difference from P is that it never reads the HTTP inside, and it picks a server once per connection.
-
-By the rule in section 95, "the highest layer it reads", such a balancer reads more than layer 4, because TLS is above TCP. AWS and most people still call it L4, using the name loosely to mean "does not read HTTP and picks a server once per connection". The pure L4 case is Q with TLS passthrough, which reads only the IP and TCP groups.
-
-### TLS Between P and the Web Servers
-`https://` in `proxy_pass` tells nginx to use TLS on the connection to the web server:
-
-```text
-proxy_pass http://shop_servers;    plain HTTP to web2, readable
-proxy_pass https://shop_servers;   TLS handshake with web2 (exchange, key, AES), then HTTP inside it
-```
-
-TLS's rules always include the Diffie–Hellman exchange and AES. A TLS 1.3 handshake without a key exchange does not exist, so "use TLS" means "do the exchange and encrypt". nginx does not need a separate setting for that.
-
-Both sides have to agree. web2's program must be listening with TLS, for example Node's `https` module given a key file and a certificate file. If nginx sends a TLS hello to a program that expects plain HTTP, that program reads binary bytes instead of `GET /`, and the connection fails.
-
-### Encryption Without Checking the Certificate
-The server always sends a certificate. What is optional is the client's check of it. Browsers always check. nginx checks web2's certificate only with `proxy_ssl_verify on`. Its default is off.
-
-So a common setup for P to web1–web4:
-
-* Each web server gets a **self-signed certificate**: one the server signs with its own private key instead of a CA's. One `openssl` command makes it.
-* nginx connects with `proxy_pass https://...` and does not check it.
-* The exchange still runs, so all bytes between P and web2 are encrypted with AES.
-
-**What is lost**: the certificate check is what stops M from section 107, a machine that sits between P and web2 and does a separate exchange with each. Without the check, P cannot tell web2 from M. So this protects against machines that only read the shop's network, not against one that pretends to be web2. The question is not whether the shop trusts web1–web4. It is whether anything between P and them could pretend to be them.
-
-**Other options**:
-
-* **The shop's own CA**: the shop makes one CA key pair itself, signs web1–web4's certificates with it, and gives P the CA's public key (`proxy_ssl_trusted_certificate` with `proxy_ssl_verify on`). Now P really checks, without Let's Encrypt.
-* **No certificate at all**: TLS 1.3 also allows a pre-shared key, where both sides are given the same secret in advance and use it instead of a certificate. It is uncommon for this. Whether nginx supports it on the `proxy_pass` side is not checked.
-
-### The Next Problem
-So far the shop owns P, the switch and web1–web4 in its own room. Suppose it rents computers from a company like AWS instead. There is no room, cable or switch it can touch. How does it get a local network like `10.0.0.x`, a public address for P, and NAT?
+**Encryption without checking the certificate.** The server always sends a certificate. The client's check is optional. Browsers always check, but nginx checks web2's only with `proxy_ssl_verify on`, which is off by default. A common setup gives each web server a **self-signed certificate** (signed with its own private key instead of a CA's, made with one `openssl` command) and lets nginx connect without checking. The exchange still runs, so all bytes between P and web2 are encrypted with AES. What is lost is protection against M from section 80: a machine between P and web2 doing a separate exchange with each. This protects against machines that only read the shop's network, not one that pretends to be web2. The question is not whether the shop trusts web1–web4, but whether anything between P and them could pretend to be them. Other options: the shop makes its own CA key pair, signs web1–web4's certificates with it, and gives P the CA's public key (`proxy_ssl_trusted_certificate` with `proxy_ssl_verify on`), so P really checks without Let's Encrypt. Or TLS 1.3's pre-shared key, where both sides are given the same secret in advance instead of a certificate, uncommon for this.
 
 ---
 
-## 115. What "Renting a Computer" Actually Is
+# Part 11: Cloud Networking
 
-### The Physical Part
-AWS owns large buildings full of physical computers. Say each one has 96 processor cores and 384 GB of memory. AWS's own cables, switches and routers join them. Only AWS staff touch them.
+The shop's network rented from AWS: VPC, subnets, internet gateway, NAT gateway, security groups and network ACLs.
 
-### The Shop's Part of One Computer
-The shop asks AWS for "a computer with 2 cores and 4 GB of memory". AWS does not hand over a whole physical computer. A program run by AWS on the physical computer splits it, and gives 2 cores and 4 GB to a pretend computer. That pretend computer runs its own Linux kernel. Its kernel sees a processor, memory and a network card, the same as on a real computer.
+---
 
-* **Virtual machine (VM)**: a pretend computer made from part of a physical one.
-* **EC2 instance**: AWS's name for a rented VM. EC2 = Elastic Compute Cloud.
+## 86. What "Renting a Computer" Actually Is
 
-### The Network Card Is Not a Card
-The network card inside the VM is not a physical card. When web1's kernel puts a frame on its card, a part run by AWS on the physical computer receives those bytes. The frame does not go straight onto a cable. These notes call this **AWS's part** on the physical computer.
+So far the shop owns P, the switch and web1–web4 in its own room. Now it rents computers from a company like AWS instead, with no room, cable or switch it can touch.
 
-### Other Customers on the Same Computer
-The same physical computer also runs VMs for other customers, such as greencafe. Each customer picks its own private addresses (section 58), so both can use `10.0.0.x`:
+AWS owns buildings full of physical computers, say each with 96 processor cores and 384 GB of memory, joined by AWS's own cables, switches and routers. When the shop asks for "a computer with 2 cores and 4 GB of memory", a program run by AWS on one physical computer splits it and gives 2 cores and 4 GB to a pretend computer. It runs its own Linux kernel, which sees a processor, memory and a network card as on a real computer.
+
+* **Virtual machine (VM):** a pretend computer made from part of a physical one.
+* **EC2 instance:** AWS's name for a rented VM (EC2 = Elastic Compute Cloud).
+
+The VM's network card is not a physical card. When web1's kernel puts a frame on it, a part run by AWS on the physical computer receives the bytes. These notes call this **AWS's part**. The same physical computer runs VMs for other customers, such as greencafe, and each picks its own private addresses (section 49), so both can use `10.0.0.x`:
 
 ```text
 physical computer H1               physical computer H2
@@ -6099,15 +2216,9 @@ physical computer H1               physical computer H2
   greencafe app1   10.0.0.11         greencafe app2   10.0.0.12
 ```
 
-### The Next Problem
-web1's kernel sends a frame to `10.0.0.12`. Two VMs have that address, bluepizza's web2 and greencafe's app2, and they are on another physical computer. How does AWS deliver the frame only to bluepizza's web2, and make sure greencafe's VMs never see it?
+## 87. VPC
 
----
-
-## 116. VPC
-
-### One Table per Customer
-AWS keeps a separate table for each customer's network. Each row says which physical computer a VM's address lives on. Every frame a VM sends is looked up only in its own customer's table.
+A frame from bluepizza's web1 to `10.0.0.12` must reach only bluepizza's web2, not greencafe's app2. AWS keeps a separate table per customer network, saying which physical computer each VM address lives on, and looks up every frame only in its own customer's table:
 
 ```text
 table for bluepizza (id vpc-111)      table for greencafe (id vpc-222)
@@ -6115,279 +2226,120 @@ table for bluepizza (id vpc-111)      table for greencafe (id vpc-222)
   10.0.0.12 -> physical computer H2     10.0.0.12 -> physical computer H2
 ```
 
-Real IDs are longer: `vpc-` followed by 17 hex characters. `vpc-111` is a placeholder.
+Real IDs are `vpc-` followed by 17 hex characters. `vpc-111` is a placeholder.
 
-### web1 Sends a Frame to 10.0.0.12
-1. web1's kernel needs web2's MAC address, so it sends an ARP broadcast (section 15): "who has `10.0.0.12`?" AWS's part on H1 receives it. It does not send the broadcast anywhere. It reads the bluepizza table and answers web1 with a MAC address itself.
-2. web1's kernel sends the frame: MAC group, IP group (from `10.0.0.11`, to `10.0.0.12`), TCP group, data.
-3. AWS's part on H1 knows the frame came from a bluepizza VM. It reads the bluepizza table: `10.0.0.12 -> H2`.
-4. AWS's part on H1 puts the whole frame, unchanged, inside a new packet with its own outer header: from H1's address, to H2's address, network ID `vpc-111`. The outer addresses belong to AWS's own building network, not to `10.0.0.x`. This is encapsulation (section 19) once more: one group inside another.
+1. web1's kernel sends an ARP broadcast (section 9) for `10.0.0.12`. AWS's part on H1 sends it nowhere: it reads the bluepizza table and answers web1 with a MAC address itself.
+2. web1's kernel sends the frame: MAC group, IP group (`10.0.0.11` to `10.0.0.12`), TCP group, data.
+3. AWS's part on H1 knows the frame came from a bluepizza VM, and the bluepizza table says `10.0.0.12 -> H2`.
+4. It puts the whole frame, unchanged, inside a new packet with an outer header: from H1's address, to H2's, network ID `vpc-111`. The outer addresses belong to AWS's own building network. This is encapsulation (section 14) again: `[outer header: H1 -> H2, vpc-111][web1's frame]`. AWS's exact outer header format is not public.
+5. AWS's switches and routers carry it using only the outer header.
+6. AWS's part on H2 removes the outer header, reads `vpc-111`, and gives the inner frame to bluepizza's web2, whose kernel sees a normal frame from `10.0.0.11`. greencafe's app2 never gets it.
 
-   ```text
-   [outer header: from H1, to H2, vpc-111][web1's frame: MAC group][IP group][TCP group][data]
-   ```
+One customer's separate network, with its own address range and table, is a **VPC** (Virtual Private Cloud). The shop picks its range when creating it, for example `10.0.0.0/16` (section 17).
 
-5. AWS's switches and routers carry it from H1 to H2, reading only the outer header.
-6. AWS's part on H2 removes the outer header, reads `vpc-111`, and gives the inner frame to bluepizza's web2. web2's kernel sees a normal frame from `10.0.0.11`.
+## 88. Subnets and Route Tables
 
-greencafe's app2 on H2 never gets the frame, because the network ID was `vpc-111`, not `vpc-222`.
+The VPC is fully private: nothing on the internet can reach `10.0.0.x`, and nothing in it can reach the internet. P must be reachable from the internet, web1–web4 must not, and the shop has no router box of its own here.
 
-AWS's exact outer header format is not public, so the details of step 4 are not checked.
-
-### Name
-One customer's separate network, with its own address range and its own table, is a **VPC** (Virtual Private Cloud). The shop picks the address range when it creates the VPC, for example `10.0.0.0` to `10.0.255.255`, written `10.0.0.0/16` (section 27).
-
-### The Next Problem
-The VPC is fully private right now. Nothing on the internet can reach `10.0.0.x`, and nothing in the VPC can reach the internet. P needs a public address that browsers can reach, and web1–web4 should stay unreachable from the internet. The shop has no router box of its own here. How does AWS split the VPC into a part that can talk to the internet and a part that cannot?
-
----
-
-## 117. Subnets and Route Tables
-
-### Splitting the Range
-The shop splits the VPC's range into smaller ranges. Each one is a **subnet**:
+The shop splits the VPC's range into **subnets**, and the room's addresses from section 67 change:
 
 ```text
 VPC        10.0.0.0/16    10.0.0.0 to 10.0.255.255
-subnet A   10.0.1.0/24    10.0.1.0 to 10.0.1.255
-subnet B   10.0.2.0/24    10.0.2.0 to 10.0.2.255
+subnet A   10.0.1.0/24    10.0.1.0 to 10.0.1.255     P at 10.0.1.10
+subnet B   10.0.2.0/24    10.0.2.0 to 10.0.2.255     web1-web4 at 10.0.2.11 to 10.0.2.14
 ```
 
-The addresses change from the room version in section 94:
+In every subnet AWS keeps `.0`, `.1`, `.2`, `.3` and `.255` for itself. `.1` is the default gateway (section 16), which in the room was the home box's router part. Here AWS's part answers for it, so P cannot be `10.0.1.1`.
+
+Each subnet is linked to a **route table**, which AWS's part reads for every packet a VM sends. As in section 17, the larger number after the slash wins:
 
 ```text
-P            10.0.1.10                 (subnet A)
-web1-web4    10.0.2.11 to 10.0.2.14    (subnet B)
+route table for subnet A                                 route table for subnet B
+  10.0.0.0/16 -> local (the VPC table, section 87)        10.0.0.0/16 -> local
+  0.0.0.0/0   -> internet gateway (every other address)
+
+web2 -> 10.0.2.11    matches local                            delivered inside the VPC
+web2 -> 8.8.8.8      no row in subnet B's table               dropped; web2's kernel gets no reply
+P    -> 8.8.8.8      matches 0.0.0.0/0 -> internet gateway    sent to the internet gateway
 ```
 
-### Five Addresses AWS Keeps
-In every subnet, AWS keeps `.0`, `.1`, `.2`, `.3` and `.255` for itself. `.1` is the default gateway (section 26): where the VM's kernel sends frames for addresses outside its subnet. In the room, the home box's router part held that address. Here AWS's part on the physical computer answers for `.1`. So P cannot be `10.0.1.1`.
+The **internet gateway** is AWS's exit from the VPC to the internet, which the shop adds to the VPC (section 89). A subnet whose route table has a row to it is a **public subnet**, one without is a **private subnet**. Nothing else makes a subnet public or private.
 
-### A Route Table per Subnet
-Each subnet is linked to a **route table**. AWS's part on the physical computer reads it for every packet a VM sends. As in section 27, when two rows match, the one with the larger number after the slash wins.
+## 89. Internet Gateway
+
+P's kernel only knows `10.0.1.10`, and internet routers have no rows for `10.x.x.x` (section 49). So the shop asks AWS for a public address and attaches it to P, and the internet gateway keeps the row `198.51.100.7 <-> 10.0.1.10`. The automatic kind of public address changes when the VM is stopped and started. An **Elastic IP** stays until the shop gives it back.
 
 ```text
-route table for subnet A
-  10.0.0.0/16  -> local               (inside the VPC: use the table from section 116)
-  0.0.0.0/0    -> internet gateway    (every other address)
-
-route table for subnet B
-  10.0.0.0/16  -> local
+incoming   browser 203.0.113.50 : 51000 -> 198.51.100.7 : 443
+           internet routers carry it to AWS, which owns that range (section 49)
+           internet gateway rewrites to-IP to 10.0.1.10, recomputes checksums, leaves ports alone
+           VPC table: 10.0.1.10 -> H3; encapsulated, carried, unwrapped
+           P's kernel sees 203.0.113.50 : 51000 -> 10.0.1.10 : 443
+outgoing   P's kernel sends 10.0.1.10 : 443 -> 203.0.113.50 : 51000
+           subnet A's table: 0.0.0.0/0 -> internet gateway, which rewrites from-IP to 198.51.100.7
 ```
 
-The **internet gateway** is AWS's exit from the VPC to the internet. The shop adds one to the VPC. How it works is in section 118.
+P's kernel never sees `198.51.100.7`: `ip addr` on P shows only `10.0.1.10`. Unlike the home box (section 50), the internet gateway maps exactly one private address to each public one, leaves ports unchanged, and its row is fixed, so a browser can start a new connection to P, where the home box would drop it (section 51).
 
-### Three Packets
-```text
-from    to            row that matches                  result
-web2    10.0.2.11     10.0.0.0/16 -> local              delivered inside the VPC
-web2    8.8.8.8       none (subnet B's table)           dropped; web2's kernel gets no reply
-P       8.8.8.8       0.0.0.0/0 -> internet gateway     sent to the internet gateway
-```
+A VM needs both a route table row `0.0.0.0/0 -> internet gateway` and a public address in the gateway's table to talk to the internet. web1–web4 have neither. Even in subnet A without a public address, web1's packets would find no row in the gateway and be dropped.
 
-### Name
-AWS calls a subnet whose route table has a row to the internet gateway a **public subnet**, and one without that row a **private subnet**. Nothing else makes a subnet public or private.
+## 90. NAT Gateway
 
-### The Next Problem
-P's kernel only knows its address `10.0.1.10`. As in section 58, routers on the internet have no rows for `10.x.x.x`. How does a browser reach P at a public address like `198.51.100.7`, and what does the internet gateway do to P's packets on the way out and on the way in?
-
----
-
-## 118. Internet Gateway
-
-### One Public Address for One Private Address
-The shop asks AWS for a public address and attaches it to P. The internet gateway then keeps this row:
+web1–web4 still need outgoing connections, for example `apt` updates or a payment company's server, but nobody outside should be able to start one to them. A **NAT gateway** is a NAT like the home box's (section 50) that AWS runs in the shop's VPC. The shop puts it in subnet A with a private address and an Elastic IP, and points subnet B's other traffic at it:
 
 ```text
-internet gateway table (bluepizza VPC)
-  198.51.100.7  <->  10.0.1.10   (P)
+NAT gateway                  private 10.0.1.50 (subnet A), Elastic IP 198.51.100.20
+internet gateway table       198.51.100.7 <-> 10.0.1.10 (P),   198.51.100.20 <-> 10.0.1.50 (NAT gateway)
+route table for subnet B     10.0.0.0/16 -> local,   0.0.0.0/0 -> NAT gateway
 ```
 
-There are two kinds of public address:
+**web1 downloads an update from `192.0.2.80 : 80`:**
 
-* **The automatic one**: changes when the VM is stopped and started again.
-* **Elastic IP**: stays the same until the shop gives it back to AWS.
+1. web1's kernel sends from `10.0.2.11 : 40000`. Subnet B's table sends it to the NAT gateway.
+2. The NAT gateway rewrites the from part to `10.0.1.50 : 61000`, recomputes checksums, and stores the row `10.0.2.11 : 40000 <-> port 61000 (to 192.0.2.80 : 80)`.
+3. It sends the packet on. Being in subnet A, it matches `0.0.0.0/0 -> internet gateway`, which rewrites `10.0.1.50` to `198.51.100.20` (section 89). The update server sees `198.51.100.20 : 61000`.
+4. The reply comes to `198.51.100.20 : 61000`. The internet gateway rewrites the to-IP to `10.0.1.50`, the NAT gateway finds row 61000 and rewrites to `10.0.2.11 : 40000`, and web1's kernel gets it.
 
-### A Browser Connects to P (Incoming)
-1. The browser's packet goes from `203.0.113.50 : 51000` to `198.51.100.7 : 443`. Internet routers carry it to AWS, because AWS's range includes that address (section 58).
-2. The internet gateway finds `198.51.100.7` in its table, rewrites the to-IP to `10.0.1.10`, and recomputes the checksums. Ports are not changed.
-3. The VPC table (section 116) gives `10.0.1.10 -> physical computer H3`. The packet is encapsulated, carried to H3, and unwrapped.
-4. P's kernel sees a packet from `203.0.113.50 : 51000` to `10.0.1.10 : 443`.
+As with the home box, many private addresses share one public address and ports change. A new packet from outside to `198.51.100.20 : 62000` finds no row and is dropped, exactly as in section 51. The NAT gateway must sit in subnet A, because its own packets need the `0.0.0.0/0 -> internet gateway` row, which only subnet A's table has.
 
-### P Replies (Outgoing)
-1. P's kernel sends from `10.0.1.10 : 443` to `203.0.113.50 : 51000`.
-2. Subnet A's route table matches `0.0.0.0/0 -> internet gateway`.
-3. The internet gateway rewrites the from-IP to `198.51.100.7` and recomputes the checksums.
-4. Internet routers carry it to the browser.
+## 91. Security Groups
 
-P's kernel never sees `198.51.100.7`. `ip addr` on P shows only `10.0.1.10`.
+So far any program on P, on any port, can be reached from the internet, and any VM can connect to any other on any port.
 
-### Difference From the Home Box NAT
-```text
-                               home box (section 59)              internet gateway
-devices per public address     many                               exactly one
-ports                          changed                            unchanged
-new connection from outside    dropped, no row (section 60)       allowed, the row is fixed
-```
-
-Because the row is fixed, a browser can start a new connection to P.
-
-### What a VM Needs to Talk to the Internet
-Both of these:
-
-* a route table row `0.0.0.0/0 -> internet gateway`
-* a public address in the internet gateway table
-
-web1–web4 have neither. If web1 were in subnet A without a public address, the internet gateway would have no row for `10.0.2.11` and would drop its packets.
-
-### The Next Problem
-web1–web4 still need to make outgoing connections, for example to download updates with `apt` or to call a payment company's server. Nobody on the internet should be able to start a connection to them. How do they get out without a public address of their own?
-
----
-
-## 119. NAT Gateway
-
-### What It Is
-A **NAT gateway** is a NAT, like the home box's in section 59, that AWS runs inside the shop's VPC. The shop puts it in subnet A and gives it two addresses:
+A **security group** is a list of allow rules attached to a VM's network card. AWS's part checks it before a packet reaches the VM and after one leaves, so the VM's kernel never sees blocked packets. **Inbound rules** cover packets coming to the VM, **outbound rules** packets leaving it. Only allow rules exist, and anything not allowed is dropped. A new security group has no inbound rules and one outbound rule allowing everything. The shop makes two:
 
 ```text
-NAT gateway   private 10.0.1.50 (subnet A)   Elastic IP 198.51.100.20
-
-internet gateway table now:
-  198.51.100.7   <->  10.0.1.10   (P)
-  198.51.100.20  <->  10.0.1.50   (NAT gateway)
+sg-p   (attached to P)           inbound:  TCP 80 from 0.0.0.0/0,  TCP 443 from 0.0.0.0/0     outbound: everything
+sg-web (attached to web1-web4)   inbound:  TCP 80 from sg-p                                  outbound: everything
 ```
 
-The shop adds one row to subnet B's route table:
+`from sg-p` means "from any VM that has sg-p attached", right now P. Port 80 on web1–web4 is the web program's port, as in section 67.
+
+AWS's part also keeps a table of the connections it has allowed, and a packet belonging to a stored connection passes both ways even if no rule matches. Because of this table, a security group is **stateful**.
+
+1. **A browser connects to P on 443.** The inbound rule matches, the packet passes, and the connection is stored, so P's replies pass.
+2. **Someone connects to P on port 22.** No rule matches, and AWS's part drops the packet silently. This is not the RST "connection refused" from section 67: the connecting kernel resends its SYN a few times and gives up, about 2 minutes on Linux with default settings.
+3. **web3 connects to web1 on 80.** web3 does not have sg-p, so it is dropped.
+4. **web1 downloads an update (section 90).** The outbound rule allows it and the connection is stored. The reply from `192.0.2.80 : 80` matches no inbound rule, but the stored row lets it in.
+
+## 92. Network ACLs
+
+Security groups can only allow. Suppose `203.0.113.0/24` keeps sending bad requests to P, and the shop wants to block it for all of subnet A without editing every VM's security group.
+
+A **network ACL** (access control list) is a numbered list of rules attached to a subnet, checked when a packet enters or leaves the subnet (not between two VMs in it). It differs from a security group in three ways: it has **deny** rules too; rules are read from the lowest number up and the first match decides; and it keeps no connection table, so it is **stateless** and a reply is checked like any new packet. The browser-to-P part of subnet A's ACL (a full list also needs rows for the NAT gateway and for P's connections to web1–web4):
 
 ```text
-route table for subnet B
-  10.0.0.0/16  -> local
-  0.0.0.0/0    -> NAT gateway
+inbound                                              outbound
+  100  all traffic  from 203.0.113.0/24  DENY          100  TCP 1024-65535  to 0.0.0.0/0  ALLOW
+  200  TCP 443      from 0.0.0.0/0       ALLOW          *   all traffic     to 0.0.0.0/0  DENY
+  210  TCP 80       from 0.0.0.0/0       ALLOW
+  *    all traffic  from 0.0.0.0/0       DENY
 ```
 
-### web1 Downloads an Update From 192.0.2.80 : 80 (Outgoing)
-1. web1's kernel sends from `10.0.2.11 : 40000` to `192.0.2.80 : 80`.
-2. Subnet B's route table matches `0.0.0.0/0 -> NAT gateway`. The packet goes to the NAT gateway.
-3. The NAT gateway rewrites the from part to `10.0.1.50 : 61000`, recomputes the checksums, and stores a row:
+`*` is the last rule, always there and impossible to remove. The browser in section 89 at `203.0.113.50` is inside the blocked range, so the normal customer here is meera at the example address `198.18.0.25`.
 
-   ```text
-   inside IP : port      outside port    other end
-   10.0.2.11 : 40000     61000           192.0.2.80 : 80
-   ```
+1. **The bad range connects** (`203.0.113.9 : 50000` to P:443). Rule 100 matches first and drops it. Rule 200 is never read.
+2. **meera connects** (`198.18.0.25 : 51000` to P:443). Rule 100 does not match, rule 200 allows it, then sg-p allows it too. Both checks must allow a packet.
+3. **P replies** to `198.18.0.25 : 51000`. With no stored connection, the outbound rules are checked. 51000 is the ephemeral port meera's kernel picked (section 19). Linux picks from 32768–60999 and Windows from 49152–65535, which is why outbound rule 100 allows 1024–65535. Without it the reply is dropped, even though sg-p would allow it.
 
-4. The NAT gateway sends the packet. It is in subnet A, so subnet A's route table matches `0.0.0.0/0 -> internet gateway`.
-5. The internet gateway rewrites the from-IP `10.0.1.50` to `198.51.100.20` (section 118). The update server sees a connection from `198.51.100.20 : 61000`.
-
-### The Reply (Incoming)
-1. The reply goes to `198.51.100.20 : 61000`. The internet gateway rewrites the to-IP to `10.0.1.50`.
-2. The NAT gateway finds port 61000 in its table and rewrites the to part to `10.0.2.11 : 40000`.
-3. The packet reaches web1's kernel.
-
-### Nobody Outside Can Start a Connection
-This works like the home box: many private addresses share one public address, and ports are changed. Someone on the internet sends a new packet to `198.51.100.20 : 62000`. The NAT gateway has no row for port 62000, so it drops it, exactly as in section 60.
-
-### Why It Sits in Subnet A
-Its own packets need the row `0.0.0.0/0 -> internet gateway`. Only subnet A's route table has it. In subnet B, the NAT gateway's packets would have no way out.
-
-### The Next Problem
-Nothing limits ports yet. Any program listening on P, on any port, can be reached from the internet at `198.51.100.7`. Inside the VPC, any VM can connect to any other VM on any port. How does the shop say "P accepts only ports 80 and 443 from the internet, and web1–web4 accept connections only from P"?
-
----
-
-## 120. Security Groups
-
-### What It Is
-A **security group** is a list of allow rules attached to a VM's network card. AWS's part on the physical computer checks it before a packet reaches the VM, and after a packet leaves the VM. The VM's kernel does not do this check, and never sees the packets that are blocked.
-
-* **Inbound rules**: for packets coming to the VM.
-* **Outbound rules**: for packets leaving the VM.
-* Only allow rules exist. Anything no rule allows is dropped.
-* A new security group has no inbound rules, and one outbound rule that allows everything.
-
-### The Shop's Two Security Groups
-```text
-sg-p   (attached to P)
-  inbound:  TCP port 80   from 0.0.0.0/0
-            TCP port 443  from 0.0.0.0/0
-  outbound: everything    to 0.0.0.0/0
-
-sg-web (attached to web1-web4)
-  inbound:  TCP port 80   from sg-p
-  outbound: everything    to 0.0.0.0/0
-```
-
-* `from sg-p` means "from any VM that has sg-p attached". Right now that is P, `10.0.1.10`.
-* Port 80 on web1–web4 is the port the web program listens on, as in section 94.
-
-### The Connection Table
-AWS's part also keeps a table of the connections it has allowed. A packet that belongs to a stored connection is allowed in both directions, even if no rule matches it. Because it keeps this table, a security group is **stateful**.
-
-### Four Cases
-1. **A browser connects to P on port 443.** The inbound rule for 443 matches, so the packet is delivered and the connection is stored. P's replies pass because of the stored row.
-2. **Someone connects to P on port 22.** No rule matches, and AWS's part drops the packet. It sends nothing back, so this is not the RST "connection refused" from section 94. The connecting side's kernel resends its SYN a few times and then gives up. On Linux with default settings, that takes about 2 minutes.
-3. **web3 connects to web1 on port 80.** web3 does not have sg-p, so the packet is dropped.
-4. **web1 downloads an update (section 119).** The outbound rule allows it, and the connection is stored. The reply comes in from `192.0.2.80 : 80`. No inbound rule in sg-web allows that address, but the stored row lets it in.
-
-### The Next Problem
-Security groups can only allow. P allows port 443 from `0.0.0.0/0`. Suppose the range `203.0.113.0/24` keeps sending bad requests to P. The shop wants to block that one range for the whole of subnet A, without editing every VM's security group. How?
-
----
-
-## 121. Network ACLs
-
-### What It Is
-A **network ACL** is a numbered list of rules attached to a subnet. ACL = access control list. AWS checks it when a packet enters or leaves the subnet. Packets between two VMs in the same subnet are not checked by it.
-
-### Three Differences From a Security Group
-* It has **deny** rules as well as allow rules.
-* Rules are read from the lowest number up. The first rule that matches decides, and later rules are not read.
-* It keeps no connection table, so it is **stateless**. A reply is checked against the rules like any new packet.
-
-### The Shop's Network ACL for Subnet A
-Only the browser-to-P part is shown. A full list also needs rows for the NAT gateway and for P's connections to web1–web4.
-
-```text
-inbound
-  100  all traffic     from 203.0.113.0/24   DENY
-  200  TCP 443         from 0.0.0.0/0        ALLOW
-  210  TCP 80          from 0.0.0.0/0        ALLOW
-  *    all traffic     from 0.0.0.0/0        DENY
-
-outbound
-  100  TCP 1024-65535  to 0.0.0.0/0          ALLOW
-  *    all traffic     to 0.0.0.0/0          DENY
-```
-
-`*` is the last rule. It is always there and cannot be removed.
-
-The browser in section 118 was at `203.0.113.50`, which is inside the blocked range. So the normal customer here is meera, at the example address `198.18.0.25`.
-
-### Three Cases
-1. **The bad range connects** (`203.0.113.9 : 50000` to P:443). Rule 100 matches first, so the packet is dropped. Rule 200 is never read.
-2. **meera connects** (`198.18.0.25 : 51000` to P:443). Rule 100 does not match, rule 200 does: allowed. Then P's security group sg-p checks it, and allows it too. Both checks must allow a packet.
-3. **P replies** (`10.0.1.10 : 443` to `198.18.0.25 : 51000`). The network ACL has no stored connection, so it checks the outbound rules. Port 51000 is the from-port meera's laptop kernel picked when it opened the connection (section 7). Linux picks from 32768-60999 by default, Windows from 49152-65535. That is why outbound rule 100 allows 1024-65535. Without it the reply is dropped, even though sg-p would allow it.
-
-### Order of Checks
-For a packet from the internet to P:
-
-```text
-internet gateway -> network ACL of subnet A -> security group sg-p -> P's kernel
-```
-
-A reply goes through the same checks in reverse order.
-
-### Side by Side
-```text
-                     security group                    network ACL
-attached to          a VM's network card               a subnet
-rules                allow only                        allow and deny, numbered, first match decides
-connection table     yes (stateful)                    no (stateless), replies need their own rules
-default              inbound: nothing allowed          the VPC's default one allows everything
-                     outbound: everything allowed      both ways
-```
-
-### Why Network ACLs Are Rarely Seen
-They are not deprecated. Every VPC has one, and every subnet is linked to one (true as of mid-2026; AWS's current documentation is not checked). What AWS retired in August 2023 was **EC2-Classic**: the older network from before VPCs, where all customers' VMs sat in one shared network and only security groups separated them.
-
-People rarely touch network ACLs because the default one allows all traffic both ways, so a VPC works without anyone opening it. Most shops write all their rules in security groups, and add network ACL rules only for what a security group cannot do, mainly a deny like rule 100 above. Since a network ACL keeps no connection table, every rule also needs a matching reply rule, such as the 1024-65535 range. A wrong reply rule drops traffic with no error message, so people avoid editing them unless they need to.
+A packet from the internet to P passes internet gateway -> subnet A's network ACL -> sg-p -> P's kernel, and a reply the same checks in reverse.
