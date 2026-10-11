@@ -4052,3 +4052,2342 @@ With encryption, F can see much less: the website's name, but not the path or th
 
 ### The Next Problem
 Back to the shop. P has four computers behind it. How should it pick one for each request, and what should it do if web3 is switched off?
+
+---
+
+## 94. Picking a Server, and Skipping a Broken One
+
+### The Setup
+```text
+browser ---- ... ---- [P] 198.51.100.7 | 10.0.0.1 ---- switch ---- web1 10.0.0.11
+                                                              ---- web2 10.0.0.12
+                                                              ---- web3 10.0.0.13
+                                                              ---- web4 10.0.0.14
+```
+
+P holds a list of the four addresses. For every request it has to pick one.
+
+### Way 1: Take Turns
+P keeps a counter. Request 1 goes to web1, request 2 to web2, request 3 to web3, request 4 to web4, request 5 to web1 again, and so on. This is **round robin**.
+
+The weakness: requests do not cost the same. A menu request takes web2 about 5 ms, a photo upload about 2 s. With plain turns, web2 can get three uploads in a row while web1 sits idle.
+
+### Way 2: Pick the Least Busy
+P opened every connection to the four servers itself (section 92), so it knows how many are open to each one right now:
+
+```text
+web1  2 open
+web2  9 open
+web3  4 open
+web4  3 open
+```
+
+The next request goes to web1, the one with the fewest. This is **least connections**.
+
+### What Actually Happens When web3 Is Off
+P sends its SYN to `10.0.0.13 : 80`. What P sees depends on what is broken:
+
+```text
+what is broken                  what P's kernel sees                            what P's connect() gets
+computer switched off           no ARP reply, so no MAC to send to              fails after about 3 s ("no route to host")
+computer on, program stopped    web3's kernel sends RST (no listener, sec. 74)  fails right away ("connection refused")
+program running but stuck       handshake works, but no reply ever comes        P waits until its own time limit, e.g. 60 s
+```
+
+If P does nothing about this, every fourth request fails or waits.
+
+### Checking Each Server Itself
+Every 5 seconds, P sends each server a small request of its own:
+
+```text
+GET /health HTTP/1.1\r\n
+Host: web3\r\n
+\r\n
+```
+
+The web program is written to answer `HTTP/1.1 200 OK` on `/health` when it is working. Each check waits up to 2 seconds for its answer. If 3 checks in a row get no 200, P marks the server as down and leaves it out of the turns:
+
+```text
+time    check                       result
+0 s     GET /health to web3         no answer by 2 s  -> fail 1
+5 s     GET /health to web3         no answer by 7 s  -> fail 2
+10 s    GET /health to web3         no answer by 12 s -> fail 3 -> web3 marked down
+```
+
+So P notices about 12 seconds after web3 went off. If any one of those checks gets a 200, the count goes back to 0. P keeps checking a down server, and after 2 good answers in a row puts it back.
+
+Why "in a row": a single check can fail while the server is fine. For example, web3 is busy with three photo uploads for 2.5 seconds, so its answer to `/health` arrives after the 2-second limit. The next check, 5 seconds later, gets a normal 200. Needing 3 failures in a row means only a problem that lasts across all three checks removes a server.
+
+These requests are **health checks**. The 5 s, 2 s, 3 and 2 are example settings the shop chooses.
+
+### The Request That Was Already Going to web3
+A request was sent to web3 just before it stopped, and the connection failed. If it was a GET, P can send the same request to web4, because a GET must not change anything (section 87). If it was a POST to `/order`, P cannot know whether web3 already saved the order. Sending it again could place the order twice, so P returns an error to the browser instead.
+
+### Name
+Spreading requests over several servers and skipping broken ones is **load balancing**. "Load" is the amount of work each server has. A program or machine that does it is a **load balancer**. P is a reverse proxy that also does load balancing.
+
+### The Next Problem
+P reads every HTTP request up to the empty line before it can pick a server, and it holds two TCP connections for every browser. Could a load balancer pick a server using only the IP and TCP groups, without the HTTP part? What would it gain, and what could it no longer do?
+
+---
+
+## 95. A Load Balancer That Reads Less
+
+### Holding vs Looking
+Every machine that passes frames on holds the whole frame in its memory. The difference between machines is which bytes they look at to decide, and whether they have to wait for more frames first.
+
+One frame carrying the start of a request, counting from the first byte of the MAC group, with a 20-byte TCP group:
+
+```text
+byte position in frame    what is there
+0 - 13                    MAC group
+26 - 29                   from IP
+30 - 33                   to IP
+34 - 35                   from port
+36 - 37                   to port
+54 - ...                  data: "GET /menu HTTP/1.1\r\n..."
+```
+
+* **A router (section 16)** stores the whole frame and looks only at bytes 30–33, the to-IP. It sends the whole frame out, data included. The data bytes sit in memory and go out again, but nothing looks at them.
+* **P (section 92)** has its kernel take the data bytes out and give them to nginx. nginx collects data until it finds `0D 0A 0D 0A`, and only then picks a server.
+
+### The Idea
+Call the new machine Q. It replaces P at `198.51.100.7` and is the router for web1–web4, so their replies to the outside go through Q, the same way a laptop's frames go through the home box (section 23). Q looks only at the IP group and the TCP group: the four values from section 20.
+
+### One Connection, Step by Step
+1. The browser `203.0.113.10 : 40001` sends a SYN to `198.51.100.7 : 80`.
+2. Q sees a SYN, so this is a new connection. It picks a server (section 94), say web2, and writes a row in its table:
+
+   ```text
+   browser IP      browser port    server picked
+   203.0.113.10    40001           10.0.0.12  (web2)
+   ```
+
+3. Q changes the to-IP in the frame from `198.51.100.7` to `10.0.0.12` and sends it on. The TCP checksum also covers the two IP addresses, so Q recomputes it along with the IP header checksum. Nothing else changes: same ports, same seq, same data.
+4. web2's kernel answers with a SYN+ACK from `10.0.0.12 : 80`. Q changes the from-IP back to `198.51.100.7`. If it did not, the browser's kernel would get a frame from `10.0.0.12`, which matches none of its connections, and would answer with RST (section 75).
+5. Every later frame from `203.0.113.10 : 40001` matches the row and goes to web2. It has to: web2's kernel holds this connection's seq numbers, and web4 would answer RST.
+
+There is only **one** TCP connection, between the browser and web2. Q does not do the handshake itself. It changes addresses and passes frames along. As the router for web1–web4, it also does a router's usual work: new MACs, TTL lowered by 1.
+
+Q's table has one row per connection. A row is made when a SYN arrives from outside, and removed when the connection ends with FIN or RST, or after no frames have passed for a long time:
+
+```text
+browser IP      browser port    server picked
+203.0.113.10    40001           10.0.0.12  (web2)
+203.0.113.10    40002           10.0.0.14  (web4)
+198.18.5.9      61200           10.0.0.11  (web1)
+```
+
+### Q Does Not Wait; P Does
+Q decides what to do with a frame using only the bytes inside that same frame, so it sends the frame out before the next one arrives. Say a request is split over 3 frames, arriving 1 ms apart:
+
+```text
+time    arrives     Q                                    P
+0 ms    frame 1     sends frame 1 to web2                keeps the data, sends nothing
+1 ms    frame 2     sends frame 2 to web2                keeps the data, sends nothing
+2 ms    frame 3     sends frame 3 to web2                finds 0D 0A 0D 0A, picks web2, starts sending
+```
+
+Q can send frame 1 at 0 ms because what it needs, the two IPs and two ports, is in frame 1's own bytes. P cannot, because the end of the request is only in frame 3.
+
+### P Builds New Frames, Q Does Not
+The browser's frames never leave P. In order:
+
+1. A frame from the browser arrives at P. P's kernel takes its data bytes (`GET /menu ...`) and copies them into a memory area the kernel keeps for this one connection.
+2. P's kernel sends an ack to the browser.
+3. The memory that held the frame is freed. Only the data bytes remain, in the connection's memory area.
+4. nginx calls `read()`. The kernel copies the data bytes from the connection's memory area into nginx's own memory.
+5. nginx calls `write()` on its second connection. P's kernel puts those bytes into new frames with new MAC, IP and TCP groups and sends them to web2.
+
+```text
+                   frame from browser into P        new frame from P to web2
+from IP            203.0.113.10                     10.0.0.1
+to IP              198.51.100.7                     10.0.0.12
+from port          40001                            51000
+to port            80                               80
+seq                browser's numbers                P's own numbers, from its own handshake with web2
+data               GET /menu ... Host ...           same request, plus the X-Forwarded-For line
+```
+
+The HTTP request line and headers are part of the data bytes, so they go on to web2. What P drops is the browser frame's MAC, IP and TCP groups. The number of frames can differ too: three frames in can go out as two, because P's kernel packs the bytes nginx wrote into frames of up to 1460 data bytes (the MSS).
+
+Q never builds a frame. It changes a few bytes in the frame it received and sends that same frame out.
+
+### What Q Gains
+* Little work per frame: one table lookup and one address rewrite. It does not read up to an empty line, open a second connection, or copy bytes into a program.
+* It works for any program on TCP, not only HTTP, for example a database on port 5432.
+* web2 sees the browser's real address as the from-IP, so no `X-Forwarded-For` is needed.
+
+### What Q Can No Longer Do
+* It cannot send `/order` to web4, because it never sees the path.
+* It picks once per connection, not once per request. If one browser sends 100 requests on one open connection (section 86), all 100 go to web2.
+* If web2 stops in the middle, Q cannot resend a GET to another server. It does not know where one request starts and ends.
+* It cannot speak HTTP/2 to the browser and HTTP/1.1 to web2, because it is not speaking HTTP at all.
+
+### How Q Differs From a Router
+```text
+                       router (R, section 16)                  Q
+looks at               to-IP only (layer 3)                    both IPs and both ports (layer 4)
+the to-IP already      names the final computer;               is Q's own address, 198.51.100.7;
+                       R only finds the cable toward it        Q decides which computer gets it
+changes IP or ports    never                                   to-IP on the way in, from-IP on the way out
+table rows             one per address range                   one per TCP connection
+rows made by           a person, or the automatic messages     Q itself, when a SYN arrives
+                       (section 17)
+```
+
+A frame reaching R already says which computer it is for, so R only moves it closer. A frame reaching Q says `198.51.100.7`, which only means "the shop". Q picks web1, web2, web3 or web4 and writes that address into the frame.
+
+### How Q Differs From NAT in the Home Box
+NAT (section 59) also looks at the IP and TCP groups, because it uses ports. The difference is which way connections start, and whether there is a choice:
+
+```text
+                       home box (NAT)                         Q
+connection starts      from inside (your laptop)              from outside (a browser)
+row created when       laptop's first frame goes out          browser's SYN comes in
+bytes it changes       from-IP and from-port of outgoing      to-IP of incoming
+does it choose?        no: the laptop decided where to go     yes: picks one of web1-web4
+no matching row        incoming frame dropped (section 60)    SYN gets a new row and a server
+```
+
+So Q is close to NAT running the other way round. The new part is that Q picks which inside computer gets each new connection.
+
+NAT is a step in the router part of the home box, at its WAN side (section 57). It is not a separate chip or socket. Most home boxes are a small computer running Linux, and the NAT table lives in that kernel's memory, next to the router's rows:
+
+```text
+laptops ~~~ [access point] -- switch -- (LAN side) router [NAT] (WAN side) ---- company's router
+```
+
+```text
+going out (laptop -> website)
+1. router part reads to-IP 198.51.100.7, decides: out of the WAN socket
+2. NAT changes from 192.168.1.23 : 50001 to 203.0.113.10 : 40001, writes the row
+3. frame leaves the WAN socket
+
+coming in (website -> laptop)
+1. frame arrives at the WAN socket, to 203.0.113.10 : 40001
+2. NAT finds row 40001, changes to-IP and to-port to 192.168.1.23 : 50001
+3. router part reads the new to-IP 192.168.1.23, decides: LAN side, to the switch
+```
+
+Coming in, NAT has to run before the router part. Before the change, the to-IP is the box's own address, and the router part would not know which laptop the frame is for.
+
+### Names
+From the layer numbers in section 80:
+
+```text
+                     looks at up to         picks a server       TCP connections
+L4 load balancer     TCP group (layer 4)    once per connection  one, browser <-> server
+L7 load balancer     HTTP part (layer 7)    once per request     two, browser <-> P, P <-> server
+```
+
+P is an **L7 load balancer**, and Q is an **L4 load balancer**. NAT also looks at up to layer 4, but people just call it NAT, not "L4 NAT".
+
+nginx is usually set up as L7. The Linux kernel has an L4 balancer called IPVS. On AWS, the "Network Load Balancer" is L4 and the "Application Load Balancer" is L7. Large sites often use both: L4 machines in front, each sending connections to several L7 machines.
+
+---
+
+## 96. What P Does With the Bytes
+
+### What web2 Knows About the Browser
+web2's connection is with P, not the browser. When web2's program asks its kernel who the connection is from, the answer is `10.0.0.1`, P, for every request from every customer. The shop's program may need the real address, for example to write it in a log, or to refuse an address that sends 1000 requests a second.
+
+P knows the real address because the browser's connection is with P. So before sending the request on, P adds one header:
+
+```text
+GET /menu HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+X-Forwarded-For: 203.0.113.10\r\n     <- added by P
+\r\n
+```
+
+A browser can write its own `X-Forwarded-For` line with any address it likes. If one is already there, nginx does not replace it. It adds the real address at the end: `X-Forwarded-For: 1.2.3.4, 203.0.113.10`. So web2's program should trust only the last address, the one P wrote.
+
+The "X-" at the start was the old way to mark a header that is not in the official HTTP rules. Q does not need this header, because it changes only the to-IP, and web2 sees the browser's real address as the from-IP.
+
+### How the Reply Gets Back
+The browser's connection to P stays open the whole time. nginx holds two connections at once. When web2's reply arrives on the second, nginx writes it into the first:
+
+```text
+browser ==conn 1==> P ==conn 2==> web2      request goes right
+browser <==conn 1== P <==conn 2== web2      reply comes back the same way
+```
+
+The browser only ever talks to P, so the reply reaches it on the connection it sent the request on.
+
+### nginx's Settings File
+nginx reads its settings from a text file, `/etc/nginx/nginx.conf`. Each setting is one line with a name and a value, ending in `;`. If a line is missing, nginx uses a default value.
+
+### A Large Request Body
+nginx needs only the headers, up to `0D 0A 0D 0A`, to pick web2. For the body it has two ways:
+
+```text
+way 1 (default)   keep the whole body first, then send it to web2
+way 2             send each part of the body to web2 as soon as it arrives
+```
+
+In way 1, nginx does not keep a large body in memory. It keeps the first 16 KB in memory (on a 64-bit machine) and writes the rest to a file on P's disk. Once the last byte has arrived, it reads the file back and sends it to web2.
+
+The setting line:
+
+```text
+proxy_request_buffering on;     <- way 1 (used if the line is missing)
+proxy_request_buffering off;    <- way 2
+```
+
+There is also a size limit line, `client_max_body_size`. If it is missing, nginx refuses any body over 1 MB and replies `413 Request Entity Too Large`. A shop that accepts 5 GB uploads has to raise that limit first.
+
+### Why Way 1 Is the Default
+The shop's web program on web2 often can work on only a few requests at a time, and a slow upload would keep one of them busy for a long time.
+
+Say web2 runs 4 copies of the shop's program (4 processes). Each copy handles one request from start to end: it reads the body, does the work, and sends the reply. While it reads a body, it does nothing else. A phone uploads a 50 MB photo at 1 MB per second, so the upload takes 50 s:
+
+```text
+way 2 (send as it arrives)            way 1 (nginx keeps it first)
+bytes reach web2 at 1 MB/s            nginx receives all 50 MB over 50 s
+one copy busy for 50 s                then sends 50 MB over the shop's 1 Gbit/s cable
+                                      (about 125 MB/s), so about 0.4 s
+4 slow phones -> all 4 copies busy,   one copy busy for 0.4 s
+menu requests wait
+```
+
+nginx can afford the 50 s wait and web2 cannot, because nginx is written differently. One nginx process works on thousands of connections: it asks the kernel which connections have new bytes, handles those bytes, and goes back to asking. It never sits waiting on one connection, so a slow phone costs it only some disk space.
+
+A second reason, from section 94: if web2 fails partway, nginx still has the full body and can send the same request to another server.
+
+If the web program itself works the way nginx does (Node.js does), the first reason matters less. For very large uploads like 5 GB, writing everything to disk first costs time and disk space, so shops usually use way 2 for that path, or let browsers upload straight to separate storage.
+
+### The Reply Going Back
+A **buffer** is a piece of memory where bytes wait before they are sent on.
+
+Say web2 has a 1 MB reply for a phone. web2 can send it to nginx at about 125 MB/s over the shop's cable. The phone can take only 100 KB/s, so it needs 10 s.
+
+```text
+setting                 what nginx does                                   web2's program is busy for
+proxy_buffering on;     takes bytes from web2 as fast as web2 sends,      about 8 ms
+(default)               keeps what the phone has not taken yet in
+                        buffers (and a disk file if they do not fit),
+                        sends to the phone as soon as it has bytes
+
+proxy_buffering off;    takes bytes from web2 only as fast as the        about 10 s
+                        phone takes them, keeps nothing extra
+```
+
+The two settings use the same word but do not behave the same way:
+
+```text
+proxy_request_buffering on    (phone -> web2)   sends nothing to web2 until the whole body has arrived
+proxy_buffering on            (web2 -> phone)   starts sending to the phone as soon as bytes arrive,
+                                                and takes bytes from web2 faster than the phone can
+```
+
+For the reply, "buffering" does not mean "wait for everything". It means nginx does not make web2 wait for the slow phone. The difference comes from what waiting gains:
+
+* **Request**: having the whole body before contacting web2 means web2 gets it in one fast burst, and nginx can resend it to another server.
+* **Reply**: waiting for the whole reply before sending gains nothing. web2 is already free either way, and the phone would only start receiving later.
+
+One side effect matters later (section 101): with `proxy_buffering on`, a small part of a reply, say 30 bytes, can sit in nginx's buffer instead of going to the browser right away.
+
+---
+
+## 97. One Request, One Reply
+
+### It Is HTTP's Rule
+TCP only carries bytes in both directions (section 85). HTTP adds the rule: the server must send exactly one response for each request. TCP does not enforce it. If the program on web2 never writes a reply, nothing at the TCP level complains. The program just broke HTTP's rules.
+
+DNS (section 83) and HTTP are both layer 7 protocols. Each one's rules cover only the bytes in the data part: DNS in UDP datagrams, HTTP in a TCP byte stream (or QUIC in HTTP/3).
+
+### Matching a Reply to Its Request
+* **HTTP/1.1**: replies on a connection come back in the same order as the requests. The first reply is for the first request, and so on. There is no ID (section 88).
+* **HTTP/2**: the reply carries the same stream ID as its request (section 89).
+
+### Time Limits
+HTTP's rules give no number. Each program sets its own limit. nginx waits up to 60 s for web2 by default:
+
+```text
+web2 refuses the connection (RST)       nginx replies 502 Bad Gateway to the browser
+web2 sends nothing for 60 s             nginx replies 504 Gateway Timeout to the browser
+```
+
+If a connection closes before any reply arrives, the browser shows an error page. Chrome shows `ERR_EMPTY_RESPONSE`. How long a browser itself waits for a reply before giving up: not checked.
+
+---
+
+## 98. Keeping the Connection Open
+
+### What It Means
+When a page first loads, the browser opens a TCP connection with the handshake (SYN, SYN+ACK, ACK). After the first reply, the browser does not send FIN (section 86). Both kernels keep their records for the connection: the four values, the seq numbers and the window. The next request is written into that same open connection, with no new handshake:
+
+```text
+0 s     SYN, SYN+ACK, ACK         connection opened once
+0 s     GET /order/57/status  ->  reply
+5 s     GET /order/57/status  ->  reply      same connection, no handshake
+10 s    GET /order/57/status  ->  reply      same connection, no handshake
+```
+
+Once the connection is closed, by either side, the next request needs a new connection, and that starts with a new handshake.
+
+### The Connection Header
+It is part of HTTP through one header, `Connection`:
+
+```text
+Connection: close        "after this reply, this connection will be closed"
+Connection: keep-alive   "keep the connection open after this reply"
+```
+
+```text
+HTTP/1.0 (older)   the connection closes after each reply, unless the request says
+                   Connection: keep-alive
+HTTP/1.1           the connection stays open after each reply, unless either side says
+                   Connection: close
+```
+
+So in HTTP/1.1 the header usually appears only when someone wants to close. Keeping it open also needs the reply to mark where it ends, with `Content-Length` or chunks (section 101). Otherwise the only way to mark the end is to close the connection (method 3, section 82).
+
+### Who Calls close()
+The kernel never reads HTTP. The program reads the header, and calls `close()` after the reply has been completely written. Then the kernel sends FIN.
+
+**The browser sends it in the request:**
+
+```text
+GET /menu HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+Connection: close\r\n
+\r\n
+```
+
+1. The server program reads the request, including this line.
+2. It writes the full reply.
+3. It calls `close()`. Its kernel sends FIN after the last reply byte.
+4. The browser reads the reply, then `read()` returns 0, and the browser calls `close()` too.
+
+**The server puts it in the reply:**
+
+```text
+HTTP/1.1 200 OK\r\n
+Content-Length: 26\r\n
+Connection: close\r\n
+\r\n
+Margherita 8\nPepperoni 10\n
+```
+
+1. The server program writes this reply, then calls `close()`. Its kernel sends FIN.
+2. The browser reads the 26 body bytes.
+3. Having seen `Connection: close`, the browser sends no more requests on this connection and calls `close()`. Its next request goes on a new connection.
+
+### How Long It Stays Open
+HTTP's rules give no number. Each program sets its own limit for how long a connection may sit with no requests:
+
+```text
+nginx      75 s   (default)
+Node.js    5 s    (default; it also sends "Keep-Alive: timeout=5" in replies to tell the browser)
+Firefox    115 s
+Chrome     not checked
+```
+
+Whichever side's limit comes first closes the connection with FIN.
+
+### Too Many Open Connections
+Each open connection takes memory in the server's kernel and in nginx, even when no requests come. That is the main reason server limits are short. With nginx's 75 s, 10,000 browsers that load one page and go quiet hold 10,000 connections for 75 s, and then all are closed. nginx also has a maximum number of connections it holds at once. Past that, new connections wait or are refused.
+
+### With a Proxy
+The header applies only to the one connection it travels on. P holds two connections, so nginx does not pass the browser's `Connection` line on to web2. It decides separately whether its own connection to web2 stays open.
+
+### The Next Problem
+A customer orders a pizza. Ten minutes later the kitchen marks order 57 as ready on web2. The shop wants the page to show "order 57 is ready" at that moment. But in HTTP, the server sends a response only after the browser sends a request. How can the server tell the browser about something that happened later?
+
+---
+
+## 99. Asking Again and Again
+
+### The Setup
+The order page has a small JavaScript program that the browser runs. After the order is placed, it knows the order number, 57.
+
+### The Simplest Way
+Every 5 seconds, the JavaScript sends a request:
+
+```text
+GET /order/57/status HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+\r\n
+```
+
+web2 checks its records and replies:
+
+```text
+HTTP/1.1 200 OK\r\n
+Content-Type: text/plain\r\n
+Content-Length: 8\r\n
+\r\n
+cooking\n
+```
+
+When the kitchen marks it ready, the next request gets `ready\n`, and the page shows "order 57 is ready". The requests go on the same open connection (section 98), so there is no new handshake each time.
+
+### What It Costs
+The pizza takes 10 minutes:
+
+```text
+requests sent          600 s / 5 s = 120
+replies with news      1
+replies "cooking"      119
+```
+
+With 1000 customers waiting at once, the shop gets 1000 / 5 = 200 requests per second, almost all answered "cooking".
+
+There is also a delay. If the kitchen marks it ready just after a request was answered, the page finds out up to 5 seconds later. Asking every 1 second cuts the delay to 1 second but makes 5 times as many requests. Asking every 30 seconds makes fewer requests but can be 30 seconds late.
+
+### Name
+Sending the same request on a timer to check for news is **polling**.
+
+### The Next Problem
+Almost every reply says "cooking". What if web2 did not answer at once when there is no news? It could keep the request and reply only when the order becomes ready. What would that change, and what could go wrong while the request waits?
+
+---
+
+## 100. Holding the Request Until There Is News
+
+### The Change
+The browser sends one request:
+
+```text
+GET /order/57/wait HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+\r\n
+```
+
+web2's program first checks order 57. If it is already ready, it replies right away. If not, it does not reply. It keeps the request in a list in its memory:
+
+```text
+waiting for order 57:   connection from P, port 51000
+```
+
+Ten minutes later the kitchen marks order 57 ready. The program finds that entry and writes the reply on that connection:
+
+```text
+HTTP/1.1 200 OK\r\n
+Content-Length: 6\r\n
+\r\n
+ready\n
+```
+
+The page shows "order 57 is ready" within milliseconds, not up to 5 seconds later. One request, one reply, both within HTTP's rules. The reply just comes late.
+
+### What Goes Wrong While It Waits
+**1. Time limits along the way.** nginx waits up to 60 s for web2's reply (section 97). After 60 s with nothing, it sends `504 Gateway Timeout` to the browser. So the shop's program replies by itself before that, say after 30 s:
+
+```text
+HTTP/1.1 200 OK\r\n
+Content-Length: 8\r\n
+\r\n
+waiting\n
+```
+
+and the JavaScript sends a new `/wait` request right away. Over 10 minutes that is about 20 requests instead of 120.
+
+**2. Open connections.** Every waiting customer holds one connection to P and one from P to web2, the whole time. With 1000 customers, that is 1000 + 1000 open connections, all idle. A web program that runs 4 copies, each handling one request at a time, could hold only 4 waiting requests. Long polling needs a program that works like nginx or Node.js, handling many connections at once.
+
+**3. News arriving between requests.** The order might become ready in the few milliseconds after a `waiting` reply and before the next `/wait` arrives. That is fine, because the program checks order 57's state first when the next request comes in, and replies right away.
+
+### In Node.js
+Here the kitchen's screen marks an order ready by sending `POST /order/57/ready` to the same program.
+
+```js
+const http = require("http");
+
+const status = new Map([["57", "cooking"]]); // order number -> "cooking" or "ready"
+const waiting = new Map();                   // order number -> list of { res, timer }
+
+function reply(res, text) {
+  res.writeHead(200, {
+    "Content-Type": "text/plain",
+    "Content-Length": Buffer.byteLength(text),
+  });
+  res.end(text);
+}
+
+function remove(id, entry) {
+  const list = waiting.get(id) || [];
+  waiting.set(id, list.filter((e) => e !== entry));
+}
+
+const server = http.createServer((req, res) => {
+  const wait = req.url.match(/^\/order\/(\d+)\/wait$/);
+  if (req.method === "GET" && wait) {
+    const id = wait[1];
+    if (status.get(id) === "ready") return reply(res, "ready\n");
+
+    // no news: keep res, do not reply now
+    const entry = { res };
+    entry.timer = setTimeout(() => {
+      remove(id, entry);
+      reply(res, "waiting\n");               // reply by itself after 30 s
+    }, 30000);
+    waiting.set(id, [...(waiting.get(id) || []), entry]);
+
+    // browser went away: drop the entry and its timer
+    res.on("close", () => {
+      clearTimeout(entry.timer);
+      remove(id, entry);
+    });
+    return;                                   // handler ends, nothing sent yet
+  }
+
+  const ready = req.url.match(/^\/order\/(\d+)\/ready$/);
+  if (req.method === "POST" && ready) {
+    const id = ready[1];
+    status.set(id, "ready");
+    for (const entry of waiting.get(id) || []) {
+      clearTimeout(entry.timer);
+      reply(entry.res, "ready\n");            // the late replies go out now
+    }
+    waiting.delete(id);
+    return reply(res, "ok\n");
+  }
+
+  res.writeHead(404);
+  res.end();
+});
+
+server.listen(80);
+```
+
+The function passed to `http.createServer` is the **handler**. It runs once for every request. `res` is the object the handler writes the reply on.
+
+### No Busy Waiting
+When the handler reaches `return;` without calling `res.end()`, the connection stays open with no reply sent. Node does not loop and check. It makes one call to the kernel (on Linux, `epoll_wait`) that means "put this process to sleep until any of my connections has new bytes, or until my next timer is due". While asleep, the process uses no CPU. When the kitchen's POST arrives, the kernel wakes Node, Node runs the handler for it, and that handler finds the stored `res` objects and writes the replies.
+
+One limit: `waiting` and `status` live in this one process's memory. This works only when the browser's `/wait` and the kitchen's POST reach the same process. With web1–web4 behind P, they might not. That needs the servers to share the news with each other, which is not covered here.
+
+### Name
+Holding a request open until there is news, or until a time limit, is **long polling**. The polling from section 99 is sometimes called short polling, to tell them apart.
+
+### The Next Problem
+Each request still gets exactly one reply. Suppose the shop wants several updates in a row: "cooking", "in oven", "out for delivery", then the driver's position every 2 seconds. Each update ends the reply, and the browser has to send a new request. Could web2 keep sending more bytes in one reply, and never end it?
+
+---
+
+## 101. One Reply That Never Ends
+
+### The Idea
+web2 sends the reply's status line and headers right away, and does not end the body. Each time there is news, it writes a few more body bytes on the same open connection. The browser reads each part as it arrives.
+
+This leaves one problem. Until now, the browser found the end of the body with `Content-Length`. Here nobody knows the length in advance, because the body has no end.
+
+### Marking the Body Without a Total Length
+HTTP/1.1 has another way: the header `Transfer-Encoding: chunked`. The body is then sent in parts called **chunks**. Each chunk is its length, written as hex text, then `\r\n`, then the bytes, then `\r\n`. A chunk of length 0 means the body is finished. This is the length-prefix method from section 82, done by HTTP.
+
+The length line before a chunk and the `\r\n` after it are the **chunk markers**. They are not part of the body.
+
+The browser needs to know where the body ends for two reasons:
+
+* To tell the page's JavaScript "this is the whole body". For example, `await res.text()` after `fetch()` returns only once the browser has found the end of the body.
+* To know which bytes come next on the same open connection. Everything after the body's end belongs to the next reply.
+
+### The Format of the Body: text/event-stream
+`text/event-stream` is a `Content-Type` value, like `text/plain` and `text/html`. It says the body is written in one particular text format:
+
+* The body is a series of **messages**. A message is one piece of news the server wants the page to get, like `cooking`.
+* A line starting with `data: ` holds the message's text.
+* An empty line ends a message.
+* A line starting with `:` means nothing, and the browser skips it.
+
+"Event" is the word these rules use for one message. "Event stream" means a series of messages arriving over time. The whole body is text and must be UTF-8. Raw binary data, like a photo's bytes, would first have to be turned into text characters, which makes it about a third larger. In practice it is used for short text messages.
+
+### Several Messages, and Text With Line Breaks
+One message is everything up to the next empty line, so several messages can go in one write and arrive in the same frame. The browser still calls `onmessage` once for each:
+
+```text
+data: a\n\ndata: b\n\ndata: c\n\ndata: d\n\n      -> onmessage("a"), ("b"), ("c"), ("d")
+```
+
+A line break ends a `data:` line, so text with line breaks is sent as one `data:` line per line of text. The browser joins them back with `\n`:
+
+```text
+text "a\n\nb"   is sent as   data: a\ndata: \ndata: b\n\n   -> onmessage("a\n\nb")
+```
+
+Often the server sends JSON from `JSON.stringify`, which writes a line break as the two characters `\` and `n`, so the text has no real line breaks at all.
+
+### The Bytes, in Order
+The page opens the stream at 0 s, and the browser sends:
+
+```text
+GET /order/57/events HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+Accept: text/event-stream\r\n
+\r\n
+```
+
+`Accept` is a request header where the browser lists which body formats (`Content-Type` values) it wants in the reply.
+
+web2 replies at once with the headers and the current state, and does not end the body:
+
+```text
+HTTP/1.1 200 OK\r\n
+Content-Type: text/event-stream\r\n
+Transfer-Encoding: chunked\r\n
+\r\n
+F\r\ndata: cooking\n\n\r\n             <- 0 s: 0xF = 15 bytes, message "cooking"
+```
+
+`data: ` is 6 bytes, `cooking` is 7, and two `\n` are 2: 6 + 7 + 2 = 15 = hex F. Later bytes on the same reply:
+
+```text
+8\r\n: ping\n\n\r\n                    <- 30 s, skipped by the browser
+8\r\n: ping\n\n\r\n                    <- 60 s, skipped
+F\r\ndata: in oven\n\n\r\n             <- 4 min, message "in oven"
+...
+18\r\ndata: out for delivery\n\n\r\n   <- 9 min, 0x18 = 24 bytes, message "out for delivery"
+```
+
+### One Write as Bytes
+`data: a\n\n` is 9 bytes. Four of them are 36 bytes, hex 24. One write of all four is one chunk:
+
+```text
+32 34 0D 0A                      "24\r\n"   chunk marker: 0x24 = 36 bytes follow
+64 61 74 61 3A 20 61 0A 0A       "data: a\n\n"
+64 61 74 61 3A 20 62 0A 0A       "data: b\n\n"
+64 61 74 61 3A 20 63 0A 0A       "data: c\n\n"
+64 61 74 61 3A 20 64 0A 0A       "data: d\n\n"
+0D 0A                            "\r\n"     chunk marker: end of this chunk
+```
+
+42 bytes of TCP data: 4 + 36 + 2. The browser removes the first 4 and the last 2, then finds `0A 0A` four times, so it calls `onmessage` four times.
+
+### Who Does the Parsing
+The browser, as the bytes arrive, not the page's JavaScript. `EventSource` is code built into the browser by its makers. The page's JavaScript calls `new EventSource(...)` once, and from then on the browser's code runs by itself:
+
+```text
+0 s       page JS calls new EventSource("/order/57/events")   <- page JS runs once
+0 s       browser sends the GET request, reads the reply's headers
+4 min     bytes arrive: F\r\ndata: in oven\n\n\r\n
+          browser removes chunk markers -> data: in oven\n\n
+          browser finds the empty line -> one complete message
+          browser removes "data: ", calls page JS onmessage("in oven")   <- page JS runs again
+9 min     next bytes arrive, same steps
+```
+
+If a message arrives split across two frames, the browser keeps the first part and calls `onmessage` only when the empty line has arrived. If the page used `fetch()` instead of `EventSource`, it would get the body bytes `data: in oven\n\n` and would have to split them itself.
+
+### Server (Node.js)
+```js
+const http = require("http");
+
+const status = new Map([["57", "cooking"]]); // order number -> current text
+const listeners = new Map();                 // order number -> list of open replies (res)
+
+function send(res, text) {
+  // one data line per line of text, then the empty line that ends the message
+  res.write(text.split("\n").map((line) => `data: ${line}`).join("\n") + "\n\n");
+}
+
+http.createServer((req, res) => {
+  const events = req.url.match(/^\/order\/(\d+)\/events$/);
+  if (req.method === "GET" && events) {
+    const id = events[1];
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    send(res, status.get(id));               // current state first
+    listeners.set(id, [...(listeners.get(id) || []), res]);
+
+    const ping = setInterval(() => res.write(": ping\n\n"), 30000);
+    res.on("close", () => {                  // browser went away
+      clearInterval(ping);
+      listeners.set(id, listeners.get(id).filter((r) => r !== res));
+    });
+    return;                                  // res.end() is not called here
+  }
+
+  const update = req.url.match(/^\/order\/(\d+)\/status$/);
+  if (req.method === "POST" && update) {     // the kitchen sends "in oven", ...
+    let body = "";
+    req.on("data", (part) => (body += part));
+    req.on("end", () => {
+      const id = update[1];
+      status.set(id, body);
+      for (const r of listeners.get(id) || []) send(r, body);
+      res.end("ok\n");
+    });
+    return;
+  }
+
+  res.writeHead(404);
+  res.end();
+}).listen(80);
+```
+
+The handler does not write `Transfer-Encoding: chunked`. Node adds it by itself: when the handler gives no `Content-Length`, Node puts that header in, and wraps every `res.write()` in a chunk. The handler never sees the chunk markers.
+
+### Browser (the Page's JavaScript)
+```js
+const events = new EventSource("/order/57/events");
+
+events.onmessage = (e) => {
+  document.getElementById("status").textContent = e.data;  // "cooking", "in oven", ...
+  if (e.data === "delivered") events.close();              // stop, no more requests
+};
+```
+
+### nginx in Between
+Two of nginx's defaults get in the way:
+
+* **Its buffer** (section 96): with `proxy_buffering on`, a 15-byte message can sit in nginx's buffer instead of going to the browser.
+* **Its 60 s limit** (section 97): if web2 sends nothing for 60 s, nginx ends the reply.
+
+Both are set in nginx's settings file, only for the stream paths:
+
+```text
+location ~ /events$ {               # these settings apply only to paths ending in /events
+    proxy_pass http://shop_servers; # send these requests to the list web1-web4 (named elsewhere in the file)
+    proxy_buffering off;            # send web2's bytes to the browser as soon as they arrive
+    proxy_read_timeout 3600s;       # allow up to 1 hour with no bytes from web2, instead of 60 s
+}
+```
+
+The other way is for web2's program to decide per reply, without changing nginx's file. It adds the header `X-Accel-Buffering: no` to the reply. nginx reads it, sends this reply's bytes on as they arrive, and removes the line, so the browser never sees it. Node knows nothing about nginx, so Node never adds it by itself.
+
+The `: ping\n\n` line every 30 s is there so bytes keep passing even when there is no news, and no machine on the way closes the connection for being silent. The browser skips it, by the `:` rule.
+
+### Ending the Reply: What res.end() Sends
+`res.end()` ends the HTTP reply. It does not close the TCP connection. What it sends depends on how the reply's length is marked.
+
+**Normal reply**: `res.end("ok\n")` with nothing sent before. Node counts the 3 bytes itself:
+
+```text
+HTTP/1.1 200 OK\r\n
+Content-Length: 3\r\n
+\r\n
+ok\n
+```
+
+No end marker is needed. The browser knows the body ends after 3 bytes.
+
+**Chunked reply** (SSE, or any reply with earlier `res.write()` calls and no `Content-Length`):
+
+```js
+res.write("data: delivered\n\n");
+res.end();
+```
+
+```text
+11\r\ndata: delivered\n\n\r\n     <- the write (0x11 = 17 bytes)
+0\r\n\r\n                         <- from res.end(): the 0 chunk, "body finished"
+```
+
+In both cases the connection stays open afterwards and can carry the next request. Node closes it with FIN after `res.end()` only if either side sent `Connection: close` (section 98).
+
+### Reconnecting
+`EventSource`'s rules (part of the HTML rules browsers follow) say: whenever the connection breaks or the server ends the reply, wait a few seconds and send the same GET again. The browser cannot tell whether the server meant to end, because many things end a stream with a normal `0\r\n\r\n` without the shop's program deciding to stop:
+
+```text
+web2's program is restarted                 Node ends open replies on the way down
+nginx's time limit is reached               nginx ends the reply to the browser
+web2 is taken out of the list (section 94)  the reply ends, other servers are still working
+```
+
+In all of these, the page still wants updates, and reconnecting gets them. So `res.end()` alone does not stop the stream.
+
+The new GET runs the handler from the start, and the handler's first act is to send the current status. So if "in oven" was sent while the phone had no signal, the reconnected page still gets `in oven` as its first message.
+
+The browser does not know what the messages mean, so it never decides to stop by itself, except when the tab is closed. A planned stop has its own signals, which cannot happen by accident:
+
+```text
+page JS calls events.close()               after it sees "delivered"
+server answers the reconnect GET with      HTTP/1.1 204 No Content
+```
+
+A common pattern: the server sends `data: delivered\n\n` and calls `res.end()`, and the page calls `events.close()` when it sees `delivered`.
+
+### Who Does What
+```text
+page JS        calls new EventSource once; gets message text in onmessage; calls close() at the end
+browser        sends the GET, removes chunk markers, splits at empty lines, removes "data: ",
+               calls onmessage; reconnects by itself if the reply ends or the connection breaks
+nginx (P)      passes bytes on at once (proxy_buffering off, or X-Accel-Buffering: no)
+web2 program   writes "data: ...\n\n" for news and ": ping\n\n" every 30 s
+```
+
+### Limits
+* One direction only, server to browser. The browser sends data with ordinary requests.
+* Text only (UTF-8).
+* With HTTP/1.1, each open stream holds one of the browser's 6 connections to that name (section 88). With HTTP/2 it is one stream on the shared connection, so this limit does not apply.
+
+### Name
+This is **Server-Sent Events**, or **SSE**.
+
+### The Next Problem
+The customer wants to chat with the driver: messages going both ways, many times a minute. With SSE, the driver's messages arrive on the open reply, but each customer message is a separate POST request with all its headers. Could the browser and the server stop using HTTP's request/response rules on a connection and just send messages both ways?
+
+---
+
+## 102. Switching the Connection to Another Protocol
+
+### The Idea
+The browser opens a normal TCP connection and sends a normal HTTP request, but the request asks: "after this, let us stop speaking HTTP on this connection." If the server agrees, both sides switch to a different set of rules on the same TCP connection. Under the new rules, either side can send a message whenever it wants, with no requests and no replies.
+
+### The Request That Asks to Switch
+```text
+GET /chat/57 HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+Connection: Upgrade\r\n
+Upgrade: websocket\r\n
+Sec-WebSocket-Version: 13\r\n
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n
+\r\n
+```
+
+* `Connection: Upgrade`: the `Connection` header from section 98, with a new value: "I want to change the protocol on this connection."
+* `Upgrade: websocket`: which protocol to change to.
+* `Sec-WebSocket-Version: 13`: which version of the WebSocket rules the browser follows.
+* `Sec-WebSocket-Key`: 16 random bytes the browser picks for this one handshake.
+
+The key is written using **base64**, a way to write any bytes using only letters, digits, `+` and `/`. Every 3 bytes become 4 characters, and `=` fills the last group if it is short. 16 bytes become 24 characters, ending in `==`.
+
+### Why Only the Browser Writes Sec- Headers
+The browser does not let page JavaScript set any header whose name starts with `Sec-`. If `fetch()` tries, the browser leaves the line out. So when a server sees `Sec-WebSocket-Key`, it knows the browser itself sent a real WebSocket request. Page JavaScript cannot fake one with `fetch()` to make a server switch. Because these headers share the start `Sec-`, one rule covers all of them, including ones added later.
+
+### The Reply That Agrees
+```text
+HTTP/1.1 101 Switching Protocols\r\n
+Connection: Upgrade\r\n
+Upgrade: websocket\r\n
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n
+\r\n
+```
+
+Status `101` means "agreed, switching now". Everything after this empty line, in both directions, follows the WebSocket rules instead of HTTP's.
+
+### The Key and the Accept Value
+`Sec-WebSocket-Accept` is the server's answer to the key. It uses **SHA-1**, a calculation that turns any input into 20 bytes. The same input always gives the same 20 bytes.
+
+```text
+1. server joins the key text and a fixed text written in the WebSocket rules:
+   dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11
+2. SHA-1 of those characters gives 20 bytes:
+   b3 7a 4f 2c c0 62 4f 16 90 f6 46 06 cf 38 59 45 b2 be c4 ea
+3. those 20 bytes in base64 (28 characters):
+   s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+4. server writes it in the reply:
+   Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+```
+
+The browser remembers the key it sent, does steps 1–3 itself, and compares its own 28 characters with the ones after `Sec-WebSocket-Accept:` in the reply. If they are the same, it switches. If not, it closes the connection.
+
+Only a server that knows the WebSocket rules can produce the right value for a key that was just made up. So this proves the reply came from a WebSocket server, not from an ordinary HTTP server or a stored copy of an old reply.
+
+### One Connection, Used Only for This
+In HTTP/1.1 a connection carries one request at a time, and browsers open a **new** TCP connection for each WebSocket. The page's other GETs (menu, photos) go on the browser's other connections. Once switched, the connection never goes back to HTTP. It carries WebSocket messages until it is closed.
+
+Everything happens on that one connection, with the same four values:
+
+```text
+SYN, SYN+ACK, ACK                  TCP handshake
+GET /chat/57 ... Upgrade           HTTP request
+HTTP/1.1 101 Switching Protocols   HTTP reply
+pieces, both directions, any time  WebSocket messages (section 103)
+close piece, then FIN              end
+```
+
+### A Separate Protocol
+Polling, long polling and SSE are plain HTTP: ordinary requests and replies. SSE is just an HTTP reply whose body uses `text/event-stream` and never ends.
+
+WebSocket is a separate protocol with its own rules. Only its start uses HTTP, one GET and one `101` reply, so it can share port 80 and pass through proxies like nginx. After the 101, no HTTP is spoken on that connection again.
+
+### Name
+This protocol is **WebSocket**. The switch with `101` is the **WebSocket handshake**. It is separate from TCP's handshake and comes after it.
+
+### The Next Problem
+After the 101 there are no requests, no replies and no `Content-Length`. How does each side know where one message ends and the next begins?
+
+---
+
+## 103. WebSocket Messages
+
+### A Header, Then the Message
+After the 101, every message goes on the connection as a small header followed by the message bytes. The rules call this a frame. To keep it apart from cable frames, these notes call it a **piece**, as with HTTP/2 (section 89).
+
+```text
+[ header ][ message bytes ]
+```
+
+The first 2 bytes of the header hold four things:
+
+```text
+last part?     yes or no. A long message can be split into several pieces. Usually yes.
+kind           text, binary (any bytes, like a photo), close (ending the WebSocket),
+               ping or pong (section 104)
+scrambled?     no for pieces from the server, yes for pieces from the browser
+length         how many message bytes follow
+```
+
+### Reading a Piece
+The driver's side sends "on my way", which is 9 characters:
+
+```text
+header:   last part = yes, kind = text, scrambled = no, length = 9      2 bytes
+message:  on my way                                                    9 bytes
+```
+
+The browser reads the 2 header bytes and learns "text, 9 bytes". It reads the next 9 bytes, which make one complete message, and passes "on my way" to the page's JavaScript. The byte after that starts the next piece's header.
+
+This is the length-prefix method from section 82. So one `send("ok")` on one side gives exactly one message `"ok"` on the other, never split and never joined with the next.
+
+### Longer Messages
+The length space in the header is 7 bits, so it can hold 0 to 127. The rules use it like this:
+
+```text
+value in length space    meaning
+0 - 125                  that is the length
+126                      the real length is in the next 2 bytes (up to 65,535)
+127                      the real length is in the next 8 bytes (larger)
+```
+
+The receiver always reads the first 2 header bytes, then looks at the length space:
+
+```text
+message size    length space says    header size
+9 bytes         9                    2 bytes
+1,000 bytes     126                  2 + 2 = 4 bytes   (next 2 bytes hold 1,000)
+100,000 bytes   127                  2 + 8 = 10 bytes  (next 8 bytes hold 100,000)
+```
+
+### No Reply
+WebSocket has no request/response rule. When the server sends "on my way", the browser sends nothing back. Those 11 bytes are all the message costs.
+
+With HTTP, a customer message sent as a POST must get a reply, because that is HTTP's rule (section 97):
+
+```text
+HTTP:       POST request (about 100 bytes)  ->   then   <- reply "HTTP/1.1 200 OK ..." (about 50+ bytes)
+WebSocket:  piece (11 bytes)                ->   nothing comes back
+```
+
+TCP's acks still happen in both cases, but those are sent by the kernels, not the programs, and they are the same either way.
+
+### Scrambling
+**Scrambled** means each message byte is changed with a random value before sending, so the bytes on the wire are not the bytes the page wrote. The server reverses the change and gets the original back.
+
+The browser picks 4 random bytes for each piece, called the **mask**. It combines message byte 1 with mask byte 1, message byte 2 with mask byte 2, and so on. Byte 5 uses mask byte 1 again. The combining is **XOR**: compare the two bytes bit by bit, and write 1 where the bits differ and 0 where they are the same.
+
+The letter `o` with mask byte 18:
+
+```text
+o          0110 1111
+mask 18    0001 0010
+XOR        0111 1101    = the character }
+```
+
+The server does XOR with the same mask byte again and gets `0110 1111`, which is `o`. Doing XOR twice with the same value always gives back the original.
+
+### Why Browser Pieces Are Scrambled
+Some old machines on the path, like a school's proxy F (section 93), read the bytes on connections that pass through them and look for things like `GET ... HTTP/1.1`. They do not know WebSocket. When such a machine sees the `101`, it does not understand that the connection has switched, and keeps reading the bytes as if they were still HTTP.
+
+Without scrambling, a bad website could make F keep a fake version of a real page:
+
+1. A student opens a page from `www.badsite.com`. The person who runs that site wrote both the page's JavaScript and the server program.
+2. The page opens a WebSocket to its own server, through F. The server agrees with `101`. F passes everything on but still treats the connection as HTTP.
+3. The page's JavaScript sends a WebSocket message whose text is exactly:
+
+   ```text
+   GET http://www.bluepizza.com/menu HTTP/1.1\r\n
+   Host: www.bluepizza.com\r\n
+   \r\n
+   ```
+
+   F reads these bytes as a new request for bluepizza's menu. But it sends them on the connection it already has open, which leads to badsite's server.
+4. badsite's server sends back bytes that look like an HTTP reply: `HTTP/1.1 200 OK`, headers, and a fake menu with different prices or a fake order form.
+5. F stores this as its copy of `www.bluepizza.com/menu`.
+6. For as long as that copy is kept, every student who asks for bluepizza's menu gets the fake page from F. bluepizza's real server is never contacted.
+
+With scrambling, step 3 does not work. The page writes `GET http://...`, but the browser XORs it with 4 random bytes it chose, so the bytes on the wire are unreadable, and F does not see a request. Researchers showed this attack working against real proxies in 2011, which is why the scrambling rule is in the WebSocket rules.
+
+The server's pieces are not scrambled, because page JavaScript does not choose what the server sends.
+
+### Full Examples
+**Server to browser, "on my way" (11 bytes):**
+
+```text
+byte 1     1 000 0001       last part = yes, (3 unused bits), kind = 0001 = text
+byte 2     0 000 1001       scrambled = no, length = 9
+bytes 3-11 on my way        the message, as is
+```
+
+**Browser to server, "ok" (8 bytes):**
+
+```text
+byte 1     1 000 0001       last part = yes, kind = text
+byte 2     1 000 0010       scrambled = yes, length = 2
+bytes 3-6  18 52 86 120     the mask, 4 random bytes picked by the browser
+byte 7     }                o scrambled with 18
+byte 8     _                k scrambled with 52
+```
+
+The server reads byte 2, sees "scrambled = yes, length 2", reads the 4 mask bytes, then the 2 message bytes, and reverses the XOR to get `ok`.
+
+### Header Size
+The mask is part of the header. It comes right after the length bytes and before the message bytes.
+
+```text
+part                          when                                   bytes
+first 2 bytes                 always                                 2
+extra length                  message 126 - 65,535 bytes             +2
+                              message larger than that               +8
+mask                          piece sent by the browser              +4
+```
+
+So a header is 2 to 14 bytes, followed by the message bytes.
+
+### The Next Problem
+There is a proxy in the middle. nginx does not pass the browser's `Connection` line on to web2, because it applies to one connection only (section 98). So the request that asks to switch reaches web2 without `Connection: Upgrade`, and web2 never switches. What has to change in nginx, and what do the Node.js and browser programs look like?
+
+---
+
+## 104. WebSocket Through nginx, and the Programs
+
+### What nginx Needs
+In nginx's settings file (section 96):
+
+```text
+location /chat/ {                              # these lines apply to paths starting with /chat/
+    proxy_pass http://shop_servers;            # send to the list web1-web4
+    proxy_http_version 1.1;                    # talk HTTP/1.1 to web2
+    proxy_set_header Upgrade $http_upgrade;    # add an Upgrade line to the request to web2
+    proxy_set_header Connection "upgrade";     # add "Connection: upgrade" to the request to web2
+    proxy_read_timeout 3600s;                  # allow 1 hour with no bytes, instead of 60 s
+}
+```
+
+* `proxy_http_version 1.1`: by default nginx talks HTTP/1.0 to the web servers, and switching with `Upgrade` exists only in HTTP/1.1.
+* `proxy_set_header`: adds a header to the request nginx sends to web2. `$http_upgrade` is nginx's name for the value of the browser's `Upgrade` line, here `websocket`. These two lines put back what nginx would otherwise leave out, so web2 receives a request asking to switch.
+
+### What nginx Does After the Switch
+web2 replies `101`. nginx passes the 101 to the browser and from then on stops reading HTTP on both connections. It copies every byte from the browser's connection into web2's connection, and every byte from web2's back, without looking at them. There are still two TCP connections, browser–P and P–web2. The WebSocket pieces go through unchanged.
+
+### The Server Program (Node.js)
+Node's built-in `http` module does not do the server side of WebSocket. The common library for it is `ws`. It checks the `Upgrade` and `Sec-WebSocket-Key` lines, computes `Sec-WebSocket-Accept`, writes the 101, and then reads and writes pieces: header, length, removing the scrambling.
+
+```js
+const http = require("http");
+const { WebSocketServer } = require("ws");
+
+const server = http.createServer(/* handler for normal requests */);
+const wss = new WebSocketServer({ server });   // takes requests that ask to switch
+
+const rooms = new Map();                        // order number -> open sockets (customer, driver)
+
+wss.on("connection", (socket, req) => {         // runs after the 101 is sent
+  const id = req.url.split("/")[2];             // "/chat/57" -> "57"
+  if (!rooms.has(id)) rooms.set(id, new Set());
+  rooms.get(id).add(socket);
+
+  socket.on("message", (data, isBinary) => {    // one complete message
+    for (const other of rooms.get(id)) {
+      if (other !== socket) other.send(data, { binary: isBinary });
+    }
+  });
+
+  socket.on("close", () => rooms.get(id).delete(socket));
+});
+
+server.listen(80);
+```
+
+**isBinary:** `ws` always gives the message to the code as bytes (a Node `Buffer`). `isBinary` says which kind the piece's header had: `false` for text, `true` for binary. Passing `{ binary: isBinary }` to `send()` makes the forwarded piece the same kind as the original. Without it, `ws` sends a `Buffer` as binary, so the driver's browser would get `e.data` as raw bytes (a `Blob`) instead of the string `"where are you?"`.
+
+### The Browser Program
+```js
+const ws = new WebSocket("ws://www.bluepizza.com/chat/57");
+
+ws.onopen = () => ws.send("where are you?");   // runs after the 101 arrives
+ws.onmessage = (e) => show(e.data);            // "on my way"
+ws.onclose = () => show("chat ended");
+```
+
+`ws://` is the address form for WebSocket without encryption. The browser turns it into a TCP connection to port 80 and the GET request with the `Upgrade` lines. `wss://` is the encrypted form, which comes with TLS.
+
+### The Room, Step by Step
+The customer's browser (C) and the driver's phone (D) both opened `/chat/57` and both reached the same web2 program. After both connect, web2's memory is:
+
+```text
+rooms:  "57" -> { socketC, socketD }
+```
+
+C sends "where are you?" (14 characters):
+
+```text
+1. C's page JS        ws.send("where are you?")
+2. C's browser        builds a piece: text, scrambled, length 14, sends it
+3. nginx              copies the bytes to web2's connection
+4. ws on web2         reads the piece, removes the scrambling,
+                      runs the "message" handler of socketC with data = "where are you?", isBinary = false
+5. the shop's code    goes through rooms.get("57") = { socketC, socketD }
+                        socketC: same as the sender, skipped
+                        socketD: socketD.send(data, { binary: false })
+6. ws on web2         builds a piece: text, not scrambled, length 14, writes it on D's connection
+7. D's app            onmessage gets "where are you?"
+```
+
+When D replies "on my way", the same steps run the other way. The handler of socketD runs, skips socketD, and sends to socketC.
+
+### Keeping a Silent Chat Open
+If nobody types for an hour, nginx's 1-hour limit closes the connection. The piece kinds include two for this: **ping** and **pong**. The server sends a ping piece every 30 s with `socket.ping()`, and the browser answers each one with a pong piece by itself. The page's JavaScript never sees them. Bytes keep passing through nginx, and the server also learns that the browser is still there.
+
+### Who Does What
+```text
+page JS        new WebSocket(...), send(), onmessage, onclose
+browser        TCP connection, GET with Upgrade + key, checks Accept, builds and scrambles pieces,
+               reads pieces, answers pings
+nginx (P)      adds Upgrade/Connection lines for web2, then copies bytes both ways
+ws library     checks the request, writes 101, reads/writes pieces, removes scrambling
+shop's code    decides what to do with each message (here: pass it to the other side)
+```
+
+Same limit as section 100: `rooms` lives in one process's memory. If the customer's WebSocket goes to web1 and the driver's goes to web3, they do not see each other. The servers then need to pass messages between them, which is not covered here.
+
+### The Next Problem
+The code above uses the library `ws`. Other projects use `socket.io`, and Postman has separate options for "WebSocket" and "Socket.IO". What is the difference, and what do "client" and "server" mean when both sides can send at any time?
+
+---
+
+## 105. WebSocket Clients, Servers and Libraries
+
+### Client and Server
+The two sides are different only at the start, plus one rule after it. Once the switch is done, both can send whenever they want:
+
+```text
+                    client                                    server
+before              connects to an address and port           waits on a port (listen) for connections
+the switch          sends GET with Upgrade and the key,       reads the GET, computes Accept, sends 101
+                    checks the Accept value
+pieces it sends     must be scrambled                         not scrambled
+after that          sends and receives any time               sends and receives any time
+closing             either side can                           either side can
+```
+
+It is the same split as TCP itself: one side calls `connect()`, the other waits with `listen()`. After the handshake, both are equal.
+
+### Where Each Side Comes From
+* **Browser client**: built into the browser. `new WebSocket("ws://...")` is part of every browser, like `fetch()`, so no library is needed.
+* **ws**: a Node.js library that follows the WebSocket rules exactly. It gives Node both roles:
+  * `new WebSocketServer(...)`: the server role. The web2 program in section 104 uses this.
+  * `new WebSocket("ws://...")`: the client role, for a Node.js program that connects to some other WebSocket server, for example a script acting as the driver's phone app for testing.
+
+`ws` exists because Node.js had no WebSocket support for a long time. Newer Node versions (22 and later) include a built-in `WebSocket` client, but still no built-in server.
+
+### socket.io: Built on Top of WebSocket
+**socket.io** is a Node.js library that does not change the WebSocket rules. It sends ordinary WebSocket messages and puts its own text format inside them. It is the same pattern as every layer so far: HTTP bytes inside TCP's data, DNS bytes inside UDP's data. Here, socket.io's text goes inside a WebSocket message's data:
+
+```text
+TCP data:          [ WebSocket piece header ][ message data                  ]
+message data:                                 42["chat","where are you?"]
+                                              ^ socket.io's format
+```
+
+When a socket.io client sends `socket.emit("chat", "where are you?")`, the WebSocket message text is `42["chat","where are you?"]`. The `4` means "a message" and the `2` means "a named event" in socket.io's own rules, followed by JSON with the name and the data. The WebSocket part only knows "a text message of 27 characters". The socket.io library on each side reads `42` and the JSON.
+
+socket.io adds features on top: named messages (`socket.emit("chat", ...)` instead of plain text), rooms built in, automatic reconnect, and falling back to long polling if WebSocket cannot connect. It also connects to its own path, `/socket.io/?EIO=4&transport=websocket`, and sends its own keep-alive messages (`2` and `3`).
+
+socket.io's server sits on a lower library of its own called engine.io, and engine.io uses `ws` by default for its WebSocket connections.
+
+**socket.io-client** is the matching library for the browser side.
+
+### They Do Not Mix
+A plain WebSocket client cannot talk to a socket.io server, and socket.io-client cannot talk to a plain `ws` server. Each side expects a different format inside the messages. So a socket.io server needs socket.io-client in the browser (or a matching client in another language). That is why Postman has two separate options:
+
+```text
+Postman "WebSocket"    sends and shows plain WebSocket messages
+Postman "Socket.IO"    speaks socket.io's format: you pick an event name and data
+```
+
+### The Next Problem
+Everything so far (HTTP, SSE, WebSocket) travels as readable bytes, and every machine the frames pass through holds them in memory. What stops those machines from reading a password sent in a POST body?
+
+---
+
+## 106. Anyone on the Path Can Read the Bytes
+
+### The Problem
+A customer logs in to bluepizza from a café's Wi-Fi. The browser sends:
+
+```text
+POST /login HTTP/1.1\r\n
+Host: www.bluepizza.com\r\n
+Content-Type: application/x-www-form-urlencoded\r\n
+Content-Length: 28\r\n
+\r\n
+user=meera&password=tomato42
+```
+
+On the way, the frames pass through or reach:
+
+```text
+the air            every wireless chip in range receives the café's air frames (section 50)
+the café's box     holds every frame in memory to do NAT (section 59)
+provider routers   hold every frame in memory to look up the to-IP
+```
+
+Each of these holds the whole frame, data included. Nothing stops any of them from reading `password=tomato42`.
+
+There are three separate problems:
+
+```text
+1. read      a machine on the path reads the password
+2. change    a machine on the path changes bytes, for example the prices in the menu reply
+3. pretend   a machine answers as if it were bluepizza (like the fake DNS answers in section 84)
+```
+
+### The Idea
+Before sending, the browser turns the readable bytes into unreadable bytes using a secret value that only it and bluepizza's server know. The server turns them back using the same value. Machines on the path see only the unreadable bytes.
+
+* The secret value is called a **key**.
+* Turning readable bytes into unreadable ones is **encryption**. Turning them back is **decryption**.
+* Using the same key for both is called **symmetric** encryption.
+
+### Why the WebSocket Mask Is Not This
+The mask (section 103) used XOR with 4 bytes, but the mask was written in the piece itself, so anyone could reverse it. It was never meant to hide anything.
+
+Even if the 4 bytes were kept secret, XOR with a short repeated key would not be enough. Say the browser XORs everything with 4 secret bytes k1 k2 k3 k4, repeated. A machine on the path knows an HTTP request starts with `POST`. It XORs the first 4 unreadable bytes with `P`, `O`, `S`, `T` and gets k1 k2 k3 k4. Now it can turn everything back.
+
+### AES
+The method used in practice is **AES**, the **Advanced Encryption Standard**.
+
+```text
+input     16 readable bytes + a key (16, 24 or 32 bytes; 16 and 32 are the common ones)
+output    16 unreadable bytes
+reverse   the same key turns the 16 unreadable bytes back into the readable ones
+```
+
+Longer data is handled 16 bytes at a time.
+
+**It is an algorithm**: a fixed list of steps. For a 16-byte key, it repeats one round 10 times (12 times for a 24-byte key, 14 for a 32-byte key). Each round replaces every byte using a fixed table, moves bytes to new positions, mixes groups of 4 bytes together, and XORs the result with bytes made from the key. Any program can do these steps in ordinary code, in any language.
+
+**Why it is safe**: the rounds mix the bytes so that even someone who knows the readable bytes and sees the unreadable ones cannot work out the key. The only way is to try every possible key. With a 16-byte key there are 2^128 of them, about 3.4 × 10^38.
+
+**Where it came from**: in 2001, NIST, the US government's standards office, chose it after a public competition. The winning design was called Rijndael, made by two Belgian researchers, Joan Daemen and Vincent Rijmen. AES is that design under its official name.
+
+**It has not changed since 2001.** That is the point of a standard: every program has to turn the same input and key into the same output, or the two sides could not understand each other. No practical way to break it has been found. What has changed over the years is how AES is applied to data longer than 16 bytes, and how a change to the bytes on the way is detected (section 111).
+
+**Special processor instructions**: a processor runs a fixed set of basic operations called instructions, like add two numbers, compare, or load from memory. In ordinary code, one AES round takes dozens of them. Around 2010, Intel and AMD added instructions that each do one entire AES round on 16 bytes (Intel calls them AES-NI). Phone processors (ARM) added similar ones. With them, one processor core can encrypt roughly several gigabytes per second (exact numbers not checked), so encryption takes very little time compared with sending the bytes.
+
+### The Next Problem
+AES works only if the browser and bluepizza's server already share the same secret key. They have never communicated before, and every byte they send each other passes through machines that can read it. How can they agree on a key that those machines cannot learn?
+
+---
+
+## 107. Agreeing on a Key in Front of Everyone
+
+### What Is Needed
+The browser and the server should end up with the same secret number, while every byte they send each other can be read by machines on the path.
+
+### One Piece of Math: Remainder
+`x mod n` means the remainder after dividing x by n. For example, `25 mod 23 = 2`, because 25 = 1 × 23 + 2.
+
+### The Exchange, With Small Numbers
+Two numbers are public, written in the rules, and everyone knows them: **23** and **5**.
+
+```text
+step                                   browser                        server
+1. pick a secret number, never sent    6                              15
+2. compute 5^secret mod 23             5^6 mod 23 = 8                 5^15 mod 23 = 19
+3. send that result to the other       sends 8  ------------->
+                                                <-------------        sends 19
+4. compute (received)^secret mod 23    19^6 mod 23 = 2                8^15 mod 23 = 2
+```
+
+Both end up with **2**. Neither 6 nor 15 was ever sent.
+
+**Why both get the same number**: the browser computed (5^15)^6 and the server computed (5^6)^15. Both are 5^(6×15) = 5^90, and the remainder steps do not change that. So both get 5^90 mod 23 = 2.
+
+### What a Machine on the Path Sees
+It sees 23, 5, 8 and 19. To get 2, it needs one of the secrets: a number x where `5^x mod 23 = 8`. With these small numbers it can try x = 1, 2, 3, ... and find 6 within a few tries.
+
+With real sizes, the numbers are about 600 digits long. Trying every x would take longer than any computer could run, and no faster general method is known. Computing `5^x mod n` forwards is fast. Going backwards from the result to x is not.
+
+### Names
+This is the **Diffie–Hellman key exchange**, published by Whitfield Diffie and Martin Hellman in 1976. These notes call the two values that are sent (8 and 19 here) the **exchange values**.
+
+TLS today mostly uses a version of the same idea called **X25519**. It uses a different kind of math, and its secret numbers and exchange values are 32 bytes each instead of 600-digit numbers. The shared result is then put through a fixed calculation that turns it into the AES key.
+
+### The Next Problem
+This stops a machine that only reads. But a machine M on the path can also change bytes. M can do its own exchange with the browser (pretending to be the server) and its own with the server (pretending to be the browser):
+
+```text
+browser  <--- key 1 --->  M  <--- key 2 --->  server
+```
+
+M decrypts everything from the browser with key 1, reads it, encrypts it again with key 2 and sends it on. Neither side notices. How can the browser know that the exchange value it received really came from bluepizza's server and not from M?
+
+---
+
+## 108. Proving Who Sent a Value
+
+### What Is Needed
+A way for bluepizza's server to attach something to its exchange value that only bluepizza's server could have made, and that the browser can check.
+
+### A Pair of Keys
+bluepizza's server has two keys that were made together as a pair:
+
+```text
+PRIV-B    private key: stays on bluepizza's server, never sent to anyone
+PUB-B     public key:  anyone can have a copy
+```
+
+There are two fixed calculations that every program knows:
+
+```text
+sign(message, private key)                 -> signature (some bytes)
+check(message, signature, public key)      -> yes or no
+```
+
+The rule: `check` says **yes** only if the signature was made by `sign` on exactly that message, with the private key that belongs to that public key.
+
+### Example 1: Normal
+bluepizza's server wants to send the message "my value is 19".
+
+```text
+server:   sign("my value is 19", PRIV-B)  -> SIG-1
+sends:    "my value is 19" + SIG-1
+browser:  check("my value is 19", SIG-1, PUB-B)  -> yes
+```
+
+### Example 2: M Changes the Message
+M changes it to "my value is 10" and keeps SIG-1.
+
+```text
+browser:  check("my value is 10", SIG-1, PUB-B)  -> no    (SIG-1 was made for "19", not "10")
+```
+
+### Example 3: M Signs With Its Own Key
+M has its own pair, PRIV-M and PUB-M.
+
+```text
+M:        sign("my value is 10", PRIV-M)  -> SIG-M
+browser:  check("my value is 10", SIG-M, PUB-B)  -> no    (made with PRIV-M, not PRIV-B)
+```
+
+### Example 4: M Wants a "Yes" for Its Own Message
+It would need `sign("my value is 10", PRIV-B)`. M cannot do that, because PRIV-B never leaves bluepizza's server.
+
+### What a Signature Is
+A **signature** is bytes attached to a message that show two things: which private key made them, and that the message has not been changed since.
+
+Compare it with the TCP checksum (section 76). If M changes bytes, M can just recompute the checksum, because anyone can. A signature can only be made by whoever holds the private key.
+
+### How It Is Used Here
+In practice the signed message is not one number. The server takes its copy of all the handshake messages so far, including both exchange values, runs a fixed calculation that turns them into 32 bytes (SHA-256, the same kind of calculation as SHA-1 in section 102), and signs those 32 bytes. If M changed any of those messages, `check` says no. Section 111 shows exactly which messages.
+
+### Names
+The checking key is the **public key**, and the signing key is the **private key**. This "private" has nothing to do with private IP addresses. One common signing method is **RSA**, from Rivest, Shamir and Adleman, 1977. TLS also allows other methods, built on the same kind of math as X25519. The math inside `sign` and `check` is not covered here.
+
+### The Next Problem
+The browser needs bluepizza's public key to run `check`. If the server sends it during the connection, M can replace it with PUB-M and sign with PRIV-M. The check then passes, for M. How can the browser know which public key really belongs to `www.bluepizza.com`?
+
+---
+
+## 109. Someone the Browser Already Trusts
+
+### The Idea
+The browser cannot trust a public key that arrives over the same path as M. But it can trust a public key that was **signed by someone whose public key it already has**, if it got that key before any connection, not over the network.
+
+### The List Inside the Browser
+Every operating system or browser comes with a list of public keys from a small number of organizations. On Ubuntu the list is a set of files under `/etc/ssl/certs/`. Firefox keeps its own list. These organizations are called **certificate authorities (CAs)**. The list has around 150 entries (exact count not checked). One example is **Let's Encrypt**, a non-profit that signs for free.
+
+### The Key Pair Is Made on bluepizza's Server
+The CA never makes or gives out bluepizza's private key. bluepizza's server makes its own pair and sends only the public key to the CA:
+
+```text
+1. on bluepizza's server   a program (usually certbot, Let's Encrypt's tool) makes a key pair
+                           private key -> saved in a file on the server's disk, never sent anywhere
+                           public key  -> put into the request to the CA
+2. CA                      checks that the request comes from whoever runs the name (below)
+3. CA -> server            sends back the certificate: the name + the public key, signed by the CA
+```
+
+### What the CA Checks Before Signing
+The request says "the public key for `www.bluepizza.com` is PUB-B, please sign that." Let's Encrypt has to make sure the request comes from whoever runs `www.bluepizza.com`:
+
+1. Let's Encrypt replies with a random text, for example `k7Qz...`.
+2. bluepizza's server must make that text available at `http://www.bluepizza.com/.well-known/acme-challenge/...`.
+3. Let's Encrypt looks up `www.bluepizza.com` in DNS itself, sends a GET to that path, and checks that the text is there.
+
+Only whoever controls the real server for that name can do step 2.
+
+### The Certificate
+Then Let's Encrypt signs a small document with its own private key:
+
+```text
+name            www.bluepizza.com
+public key      PUB-B
+valid from      2026-10-01
+valid until     2026-12-30
+signed by       Let's Encrypt
+signature       made with Let's Encrypt's private key over all the lines above
+```
+
+This signed document is a **certificate**. Let's Encrypt's certificates are valid for 90 days. Whether that has changed is not checked.
+
+### Two Separate Checks: Signature and Name
+A passing signature check does not mean the name is correct. They are two separate checks, and both have to pass.
+
+**The signature check** means: "these exact bytes were signed by this CA, and not one byte has changed since." It is done in three steps:
+
+```text
+1. browser runs SHA-256 over the certificate's lines (name, key, dates)    -> 32 bytes, call it X
+2. browser uses the CA's public key on the signature                       -> 32 bytes, call it Y
+3. X equals Y?  yes -> pass,  no -> fail
+```
+
+**What it does not tell**: which name the browser wanted. Say M runs `www.badsite.com` and got a real certificate for it from Let's Encrypt:
+
+```text
+M's certificate            name: www.badsite.com, signed by Let's Encrypt
+signature check            passes: Let's Encrypt really signed exactly these bytes
+name check                 browser asked for www.bluepizza.com, certificate says www.badsite.com -> fail
+```
+
+If M edits the name in its certificate to `www.bluepizza.com`, step 1 gives a different X, but the signature still gives the old Y. X is not Y, so the signature check fails. So each option fails one check:
+
+```text
+M's certificate unchanged    signature passes, name fails
+M's certificate edited       name passes, signature fails
+```
+
+Only a certificate that Let's Encrypt signed for `www.bluepizza.com` passes both, and Let's Encrypt gives one only to whoever controls bluepizza's real server.
+
+### The Certificate Alone Proves Nothing
+A certificate is public. Anyone can copy it, including M. What proves the server is bluepizza's is the signature over the handshake (section 108), which needs the private key file. M can send bluepizza's certificate, but without the private key it cannot make that signature.
+
+With certbot, the two files end up here:
+
+```text
+/etc/letsencrypt/live/www.bluepizza.com/privkey.pem     the private key (made on this server)
+/etc/letsencrypt/live/www.bluepizza.com/fullchain.pem   the certificate + the intermediate's (below)
+```
+
+In nginx, two lines point to them:
+
+```text
+ssl_certificate      /etc/letsencrypt/live/www.bluepizza.com/fullchain.pem;
+ssl_certificate_key  /etc/letsencrypt/live/www.bluepizza.com/privkey.pem;
+```
+
+### The Chain
+The CA's own private key is valuable. If it were stolen, the thief could sign certificates for any name. So the CA keeps that key on machines that are not connected to any network, and uses it only rarely, to sign a certificate for a second key pair called an **intermediate**. The intermediate's key signs the site certificates every day.
+
+```text
+ISRG Root X1 (Let's Encrypt's key in the browser's list)
+   signs ->  intermediate certificate
+                signs ->  www.bluepizza.com certificate
+```
+
+The server sends its own certificate plus the intermediate's. The browser checks each signature up the chain until it reaches a key in its list. The key in the list is called the **root**.
+
+### The Next Problem
+There are now four parts: AES, Diffie–Hellman, the signature and the certificate. How do they fit together?
+
+---
+
+## 110. The Four Parts Together
+
+### Each Part Fixes the Problem Left by the One Before
+```text
+1. AES                makes the data unreadable on the path.
+                      Problem: both sides need the same secret key first.
+
+2. Diffie-Hellman     gives both sides the same secret number (the 2 in section 107),
+                      without sending it. That number becomes the AES key.
+                      Problem: M in the middle can do this exchange with each side separately.
+
+3. Signature          bluepizza's server signs the values it sent, using its private key.
+                      The browser checks them with bluepizza's public key.
+                      Problem: how does the browser get bluepizza's real public key?
+
+4. Certificate        a document saying "this public key belongs to www.bluepizza.com",
+                      signed by a CA whose public key is already in the browser's list.
+```
+
+Read from the bottom up: the certificate gives the browser bluepizza's real public key. With it, the browser checks the signature, which proves the exchange values came from bluepizza and not from M. The exchange gives both sides the same secret. That secret is the AES key, and AES makes all the HTTP bytes unreadable.
+
+### The Values, in Plain Words
+The next sections use these names:
+
+* **Exchange value**: what each side sends in the Diffie–Hellman step, like the 8 and the 19 in section 107. Each is made from a secret number that is never sent.
+* **The key**: the AES key both sides compute from the two exchange values.
+* **bluepizza's certificate**: the CA-signed document with bluepizza's name and public key.
+* **bluepizza's handshake signature**: bluepizza's server signs its copy of all handshake messages so far with its private key.
+* **Finished check**: a short value each side computes from the key and its copy of all handshake messages. If the other side computes the same value, both have the same key and saw the same messages. It has nothing to do with TCP's FIN.
+
+### The Next Problem
+All of this has to happen at the start of the connection, before any HTTP is sent. In what order are these values sent, who sends them (the browser program or the kernel), and how many round trips does it take?
+
+---
+
+## 111. The TLS Handshake, Step by Step
+
+### Short Answers First
+* **When**: after the TCP handshake (section 74), before any HTTP.
+* **Kernel?** No. It runs inside the program, as a library. nginx and Node.js use one called OpenSSL, Chrome uses BoringSSL, and Firefox uses NSS. The kernel sees these bytes as ordinary TCP data and cannot read them.
+* **A protocol?** Yes. It has its own rules for which bytes go where and what each side does. Its name is **TLS**, **Transport Layer Security**. The current version, TLS 1.3, was published in 2018 (RFC 8446).
+* **OSI layer?** It does not fit the numbering cleanly (section 80). It sits between TCP (4) and HTTP (7). Some call it layer 6, others count it as part of the application. Either way: above TCP, below HTTP.
+* **Round trips**: 1 for TLS 1.3, after TCP's 1. The older version 1.2 needed 2.
+
+### Trip and Round Trip
+* A **trip** is bytes going one way, laptop to server or server to laptop. Say it takes 25 ms.
+* A **round trip** is there and back: one side sends something and waits for the answer. That is 50 ms.
+
+Counting round trips means counting how many times one side has to stop and wait for an answer before it can continue.
+
+### Who Is Who
+```text
+laptop                                         server (P)
+page JavaScript       the shop's page code     nginx's HTTP part    reads requests, writes replies
+browser's HTTP part   writes/reads HTTP text   nginx's TLS part     library inside nginx (OpenSSL)
+browser's TLS part    library in the browser   server kernel        TCP, IP
+laptop kernel         TCP, IP
+```
+
+The TLS parts are code inside the browser program and inside the nginx program:
+
+```text
+the program's HTTP part   writes "GET /menu HTTP/1.1 ..."         reads the readable reply
+the program's TLS part    encrypts it                             decrypts back into HTTP bytes
+-------------------- program / kernel boundary --------------------
+kernel (TCP, IP)          sends the TLS bytes as TCP data         gives received TCP data to the TLS part
+```
+
+### Copies of the Handshake Messages
+Both sides keep a copy of every handshake message they sent and received, in readable form:
+
+```text
+server's copy:   [browser's hello][server's hello][certificates]
+browser's copy:  [browser's hello][server's hello][certificates]
+```
+
+The server signs its copy. The browser checks against its own copy. If M changed anything on the way, for example the server's exchange value, the browser's copy holds M's value while the server signed its real one, so `check` says no.
+
+### The Whole Connection
+**TCP handshake: round trip 1, 0–50 ms**
+
+1. Page JavaScript calls `fetch("https://www.bluepizza.com/menu")`.
+2. The browser's HTTP part asks the laptop kernel to connect to `198.51.100.7` port 443.
+3. The laptop kernel sends SYN. The server kernel replies SYN+ACK. The laptop kernel sends ACK right away, in its own frame, and only then does `connect()` return to the browser.
+
+**TLS handshake starts: round trip 2, 50–100 ms**
+
+4. The browser's TLS part picks a secret number and computes its exchange value. It writes a hello message to the laptop kernel: "I want `www.bluepizza.com`, I can use AES, here is my exchange value." This is readable, because no key exists yet.
+5. The laptop kernel sends it as TCP data, in the frame after the ACK:
+
+   ```text
+   [MAC group][IP group: to 198.51.100.7][TCP group: to port 443, ACK+PSH][TLS header: type 22 handshake, length ~300][hello, readable][CRC]
+   ```
+
+6. The server kernel gives the bytes to nginx's TLS part. nginx's TLS part picks its own secret number, computes its exchange value, and computes **the key**.
+7. nginx's TLS part writes four messages to the server kernel:
+
+   ```text
+   server's hello: "here is my exchange value"    readable (the browser has no key yet)
+   bluepizza's certificate + intermediate's       encrypted with the key
+   bluepizza's handshake signature                encrypted with the key
+   server's Finished check                        encrypted with the key
+   ```
+
+   These are about 3,000 bytes. A frame carries at most 1,460 data bytes (section 77), so the server kernel sends them in 3 frames.
+8. The laptop kernel puts the bytes in order and gives them to the browser's TLS part, which:
+   * computes **the key** from the server's exchange value and its own secret number
+   * decrypts the certificates, the signature and the Finished check
+   * checks the certificate, then the handshake signature, then the Finished check (section 112)
+   * if any check fails, closes the connection
+
+**TLS handshake ends; HTTP starts: round trip 3, 100–150 ms**
+
+9. The browser's TLS part writes its own Finished check, encrypted. The TLS handshake is done on the browser's side.
+10. The browser's HTTP part writes the readable request to the browser's TLS part:
+
+    ```text
+    GET /menu HTTP/1.1\r\nHost: www.bluepizza.com\r\n\r\n        (47 bytes)
+    ```
+
+11. The browser's TLS part encrypts it (details below) and writes it to the laptop kernel.
+12. The laptop kernel sends the Finished check and the request:
+
+    ```text
+    [MAC group][IP group][TCP group: to port 443][TLS header: type 23, length ..][Finished check, unreadable]
+                                                 [TLS header: type 23, length 64][64 unreadable bytes][CRC]
+    ```
+
+13. The server kernel gives the bytes to nginx's TLS part. It checks the browser's Finished check, then reads the next record's length (64), checks the TAG, and decrypts back to the 47 request bytes. It gives those to nginx's HTTP part.
+14. nginx's HTTP part reads `GET /menu` and writes the readable reply. nginx's TLS part encrypts it the same way, and the server kernel sends it.
+15. The browser's TLS part decrypts the reply and gives the readable HTTP bytes to the browser's HTTP part. That part gives the body to page JavaScript, and `fetch` returns.
+
+### Why the Lone ACK Adds No Wait
+A round trip is counted when one side has to receive an answer before it can send its next message. No answer to an ACK is ever sent (an ACK is never acked, section 74), and the laptop does not need anything back before sending the hello:
+
+```text
+0 ms      laptop kernel sends SYN
+50 ms     SYN+ACK arrives; laptop kernel sends ACK
+~50 ms    browser's TLS part writes the hello; laptop kernel sends it right after the ACK
+75 ms     server receives the ACK, then the hello
+100 ms    server's hello, certificates, etc. arrive at the laptop
+```
+
+### What Literally Gets Encrypted
+For the request in step 11:
+
+```text
+input to AES:   the 47 request bytes + 1 byte meaning "this is HTTP data"   = 48 readable bytes
+AES output:     48 unreadable bytes + a 16-byte TAG                         = 64 bytes
+adds header:    type 23, version, length 64                                 = 5 bytes, readable
+written to the laptop kernel: 69 bytes
+```
+
+The **TAG** is computed from the key and the encrypted bytes. The receiver recomputes it. If M changed even one byte, the TAG does not match and the receiver closes the connection. M cannot make a new TAG because it does not have the key. This solves problem 2 from section 106 (change).
+
+The server's encrypted handshake messages in step 7 are encrypted the same way.
+
+### Round Trips
+```text
+round trip 1   TCP handshake                       0 - 50 ms
+round trip 2   TLS handshake (steps 4 - 8)         50 - 100 ms
+round trip 3   Finished check + request, reply     100 - 150 ms
+```
+
+Without TLS, the reply would arrive at 100 ms. TLS adds one round trip.
+
+### Names
+* Steps 4–9 are the **TLS handshake**.
+* HTTP inside TLS is **HTTPS**.
+
+In Node.js, this is the difference between the `http` module and the `https` module: `https` is `http` with the TLS part between the code and the kernel.
+
+### Port 443
+HTTPS uses port 443. Plain HTTP stays on 80. They use separate ports because a server has to know what the first bytes on a new connection will be: a TLS hello (binary) or HTTP text like `GET /`.
+
+```text
+http://www.bluepizza.com    -> browser connects to port 80, sends HTTP text
+https://www.bluepizza.com   -> browser connects to port 443, starts with a TLS hello
+```
+
+Many sites run both, but the program on port 80 only replies `301 Moved Permanently` with a header line `Location: https://www.bluepizza.com/...`, which tells the browser to repeat the request at the HTTPS address.
+
+### The Next Problem
+Step 8 says "checks the certificate, then the handshake signature, then the Finished check". What exactly does each check compare, and what does each one stop?
+
+---
+
+## 112. The Browser's Checks, One by One
+The browser's TLS part does all of these after decrypting the server's messages. The server sends two certificates: bluepizza's own, and the intermediate's (section 109).
+
+### Check 1: Was bluepizza's Certificate Made by a CA in My List?
+This happens in two hops.
+
+**1a.** bluepizza's certificate says "signed by: Let's Encrypt intermediate".
+
+* The browser takes the intermediate's public key from the intermediate's certificate.
+* It runs `check(bluepizza's certificate lines, the signature at the bottom of it, intermediate's public key)`.
+* Yes means the intermediate signed exactly these lines: this name, this public key, these dates.
+
+**1b.** The intermediate's certificate says "signed by: ISRG Root X1".
+
+* The browser looks for ISRG Root X1 in its own built-in list and takes that public key.
+* It runs `check(intermediate certificate lines, its signature, root's public key from the list)`.
+* Yes means the root signed the intermediate.
+
+**What it stops**: M making up its own certificate for `www.bluepizza.com`. M's signature does not lead to any key in the list.
+
+### Check 2: Is the Name the One I Asked For?
+* A certificate lists the names it covers, for example `bluepizza.com` and `www.bluepizza.com`.
+* The browser compares that list with the name from the address, `www.bluepizza.com`.
+
+**What it stops**: M sending its own real certificate for `www.badsite.com`. Check 1 passes, this one fails.
+
+### Check 3: Is Today Inside the Dates?
+* The browser compares "valid from" and "valid until" with the laptop's clock.
+* If the laptop's clock is wrong by months, valid sites fail this check.
+
+**What it stops**: use of old certificates, whose private keys might have been stolen or leaked since.
+
+### Check 4: Did the Holder of bluepizza's Private Key Sign This Handshake?
+* The browser has its own copy of the handshake messages so far: its hello, the server's hello (with the server's exchange value), and the certificates.
+* It runs `check(its copy, bluepizza's handshake signature, bluepizza's public key from the certificate)`.
+* Yes means whoever signed has bluepizza's private key and saw exactly the same messages, including the same exchange values.
+
+**What it stops**:
+
+* M sending bluepizza's real certificate: M has no private key to sign with.
+* M replacing the server's exchange value: the browser's copy then differs from what bluepizza signed.
+
+### Check 5: Does the Server Have the Same Key?
+* The browser computes the Finished check it expects, from the key and its copy of all handshake messages.
+* It compares that with the server's Finished check it just decrypted.
+* Yes means the server computed the same key and has the same copy of every message.
+
+Checks 1–4 prove who the server is. This one proves that the server ended up with the same AES key the browser has.
+
+### On the Server's Side
+In step 13 of section 111, nginx's TLS part does check 5 the other way round, with the browser's Finished check. That is how the server finds out if M changed the browser's hello on the way.
+
+### When a Check Fails
+The browser closes the connection and shows a warning page instead of the site. In Chrome:
+
+```text
+check 1 fails    NET::ERR_CERT_AUTHORITY_INVALID
+check 2 fails    NET::ERR_CERT_COMMON_NAME_INVALID
+check 3 fails    NET::ERR_CERT_DATE_INVALID
+check 4 or 5     the connection is closed with an error (exact page not checked)
+```
+
+### What M Can Do, All Together
+```text
+reads the bytes                  sees the hello messages (name, exchange values), everything else is unreadable
+replaces the exchange value      check 4 fails: M cannot sign without bluepizza's private key
+sends its own certificate        check 1 or check 2 fails
+sends bluepizza's certificate    check 4 fails
+changes encrypted bytes          the TAG does not match
+```
+
+### The Next Problem
+These notes have shown the IP group, the TCP group and HTTP's text byte by byte. What do TLS's own bytes look like?
+
+---
+
+## 113. What TLS Bytes Look Like
+TLS bytes come in two levels: **records** on the outside, and **messages** inside the records.
+
+### Level 1: The Record (the "TLS Group")
+Everything the TLS part writes to the kernel is a sequence of records. Each record is a 5-byte header plus content. This is the length-prefix method from section 82:
+
+```text
+field     size      meaning
+type      1 byte    22 = handshake message (readable)
+                    23 = encrypted content
+                    21 = alert (an error, e.g. "bad certificate", just before closing)
+version   2 bytes   always 3.3, kept so old middle machines do not reject the record;
+                    the real version is given inside the hello
+length    2 bytes   how many content bytes follow (at most 16,384 readable bytes,
+                    plus a little more for the TAG once encrypted)
+content   length    one or more messages, readable or encrypted
+```
+
+### Level 2: Handshake Messages, Inside the Content
+Level 1's content is a box. Level 2 describes what is inside that box when it holds handshake messages. It is like the IP group and the TCP group: the IP group only says "data follows", and the TCP group's rules describe what that data looks like.
+
+Each handshake message has its own small header:
+
+```text
+field     size      meaning
+type      1 byte    1 = client hello      2 = server hello      8 = extra settings
+                    11 = certificate      15 = handshake signature   20 = Finished check
+length    3 bytes   size of the body
+body      length    depends on the type
+```
+
+The browser's hello, nested:
+
+```text
+[record header: type 22, version 3.3, length 300]     <- level 1: 5 bytes
+[content: 300 bytes]                                  <- level 1 only says "300 bytes follow"
+   inside those 300 bytes (level 2):
+   [message type 1, message length 296]               <- 4 bytes
+   [message body: version, random, ..., extensions]   <- 296 bytes
+```
+
+4 + 296 = 300, so this content is exactly one message. The box can also hold several messages back to back, as in the server's encrypted record below.
+
+### The Client Hello, Field by Field
+```text
+[record: type 22, version 3.3, length ~300]
+  [message: type 1 (client hello), length ~296]
+    [version 3.3]
+    [random: 32 bytes]                         new random bytes for every connection
+    [session id: 32 bytes]                     kept only for old middle machines
+    [methods I can use: 13 01, 13 02, 13 03]   13 01 = AES with a 16-byte key
+                                               13 02 = AES with a 32-byte key
+                                               13 03 = ChaCha20, used where the processor has no AES instructions
+    [compression: none]                        kept only for old machines
+    [extensions, each one = type (2 bytes), length (2 bytes), value:
+       server name           www.bluepizza.com
+       versions I support    1.3
+       key share             X25519 + browser's exchange value (32 bytes)
+       signing methods I can check
+       next protocol         h2, http/1.1]
+```
+
+* **random**: makes every handshake's copy of messages different, so a signature recorded from an old connection cannot be used again in a new one.
+* **server name**: called **SNI** (Server Name Indication). The server needs it because one server at one IP can run both `www.bluepizza.com` and `www.greencafe.com` (section 86), and it has to know which certificate to send before any HTTP arrives.
+* **next protocol**: how the two sides choose the HTTP version. The browser lists what it can speak, and the server picks one. Its name is **ALPN** (Application-Layer Protocol Negotiation). This is why browsers use HTTP/2 only with encryption (section 89): it is chosen here, inside TLS.
+
+### The Server's Messages
+```text
+[record: type 22]                                              readable
+  [message: type 2 (server hello)]
+    [version 3.3][random: 32 bytes][session id: copied]
+    [method chosen: 13 01]
+    [extensions: version 1.3, key share: X25519 + server's exchange value (32 bytes)]
+
+[record: type 23][~3,000 encrypted bytes + 16-byte TAG]        unreadable on the path; after decryption:
+  [message: type 8  (extra settings)]        e.g. next protocol chosen: h2
+  [message: type 11 (certificate)]           bluepizza's certificate + the intermediate's
+  [message: type 15 (handshake signature)]   signing method + the signature
+  [message: type 20 (Finished check)]        32 bytes
+  [1 byte: real type = handshake]
+```
+
+The record's content is one box holding four messages, each with its own type and length.
+
+### After the Handshake
+```text
+[record: type 23, version 3.3, length 64][64 bytes: 48 encrypted + 16-byte TAG]
+```
+
+After decryption, the 48 bytes are the 47 HTTP bytes plus 1 byte giving the **real type**. The outside type is always 23, even when the record holds something else. Some non-HTTP records are still sent after the handshake:
+
+```text
+real type   what is inside           example after the handshake
+23          HTTP bytes               the GET request, the reply
+21          alert                    "close notify": TLS's own "I am closing now" message
+22          handshake message        "new key": switch to a fresh AES key on a long connection
+```
+
+The receiving TLS part decrypts the content, reads the last byte, and then knows what to do: pass the bytes to HTTP, handle an alert, or handle a handshake message. Because this byte is encrypted too, a machine on the path cannot tell which of these a record is.
+
+### Where It Sits in a Frame
+```text
+[MAC group][IP group][TCP group][TLS record header][TLS content][CRC]
+```
+
+TLS records are TCP data, the same way HTTP was TCP data before. HTTP is now inside the TLS content, encrypted.
+
+### What the School's Proxy Sees
+With HTTPS, the `Host:` line is inside the encrypted HTTP, so F (section 93) cannot read it. F sees the name outside HTTP, in two places:
+
+1. **The SNI in the client hello.** It is sent before the key exists, so it is readable.
+2. **With the proxy setting on**, the browser first sends F one short plain HTTP request, `CONNECT www.bluepizza.com:443 HTTP/1.1`, which means "open a TCP connection to this name and port, then copy bytes both ways". F reads the name there. After that, F only copies the encrypted bytes.
+
+### The Next Problem
+In sections 94–95, P and Q sit in front of web1–web4. With HTTPS, the browser does its TLS handshake with whatever answers at `198.51.100.7`. Which machine needs the certificate and private key, and can P still read the path to route `/order`?
+
+---
+
+## 114. Where TLS Ends When There Is a Load Balancer
+
+### Case 1: P (L7, nginx) Ends TLS
+P has the certificate and private key on its own disk. In nginx's settings file:
+
+```text
+server {
+    listen 443 ssl;                     # wait for connections on port 443, use TLS on them
+    server_name www.bluepizza.com;      # these settings are for this name
+    ssl_certificate     /etc/letsencrypt/live/www.bluepizza.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.bluepizza.com/privkey.pem;
+
+    location / {
+        proxy_pass http://shop_servers; # send to web1-web4 in plain HTTP
+    }
+}
+```
+
+`ssl` is the old name for TLS. SSL (Secure Sockets Layer) was its earlier version, and nginx kept the word.
+
+One request:
+
+```text
+1. browser's TLS part  <-- TLS handshake -->  nginx's TLS part on P
+2. browser's TLS part      sends the encrypted request
+3. nginx's TLS part        decrypts it -> readable "POST /order ..."
+4. nginx's HTTP part       reads the path, picks web4, adds X-Forwarded-For
+5. P's kernel              sends the readable request to 10.0.0.14 port 80, on a second connection
+6. reply comes back        nginx's TLS part encrypts it for the browser
+```
+
+The TLS connection is between the browser and P only. Between P and web4 the bytes are readable, but they only travel inside the shop's local network.
+
+Ending TLS at the proxy is called **TLS termination**.
+
+**What it gives**:
+
+* The certificate and private key live in one place, P, not on four servers.
+* P can read HTTP, so it can route `/order` to web4, add `X-Forwarded-For`, and speak HTTP/2 to the browser.
+* web1–web4 spend no processor time on encryption.
+
+**What it costs**: P sees every password and order in readable form. Whoever controls P controls all of that.
+
+### Case 2: Q (L4) Passes TLS Through
+Q only changes the to-IP in each frame (section 95). It has no key, so the TLS records go through it unchanged:
+
+```text
+1. browser's TLS part  <-- TLS handshake, through Q -->  TLS part of the program on web2
+2. Q                       sees only [TLS header: type 23][unreadable bytes]
+```
+
+The TLS connection is between the browser and web2 directly. So **each** of web1–web4 needs a copy of the certificate and the private key, because the browser could be sent to any of them.
+
+This is called **TLS passthrough**. Q still cannot read the path, add `X-Forwarded-For`, or route `/order` anywhere specific.
+
+**One thing Q can read**: the client hello is readable, including the SNI name. An L4 balancer can read that name and pick a group of servers by it without decrypting anything. In nginx this is the `ssl_preread` setting.
+
+### Side by Side
+```text
+                           P (TLS termination)          Q (TLS passthrough)
+TLS handshake is with      P                            web1 - web4
+certificate + private key  on P only                    on every web server
+can read path / headers    yes                          no (only the SNI name)
+bytes P/Q -> web server    readable, or a second TLS    the browser's TLS records, unchanged
+```
+
+### Ending TLS Without Reading HTTP
+Ending TLS and reading HTTP are separate things. TLS sits below HTTP, so a machine can decrypt TLS and still never read the HTTP inside.
+
+On AWS, the Application Load Balancer (L7) ends TLS, with the certificate stored in AWS. The Network Load Balancer (L4) can either pass TLS through, like Q, or end TLS itself. When it ends TLS:
+
+* It cannot pass frames along as they arrive. It has to take part in the handshake itself (receive the hello, send its own hello and the certificate over several frames, wait for the browser's Finished check), and a TLS record can be up to about 16 KB spread over many frames. The TAG check needs the whole record, so it collects every frame of a record before decrypting.
+* After decrypting, it writes the readable bytes into its own second connection to the server, and its kernel builds new frames. So it works like P: two TCP connections, new frames. The only difference from P is that it never reads the HTTP inside, and it picks a server once per connection.
+
+By the rule in section 95, "the highest layer it reads", such a balancer reads more than layer 4, because TLS is above TCP. AWS and most people still call it L4, using the name loosely to mean "does not read HTTP and picks a server once per connection". The pure L4 case is Q with TLS passthrough, which reads only the IP and TCP groups.
+
+### TLS Between P and the Web Servers
+`https://` in `proxy_pass` tells nginx to use TLS on the connection to the web server:
+
+```text
+proxy_pass http://shop_servers;    plain HTTP to web2, readable
+proxy_pass https://shop_servers;   TLS handshake with web2 (exchange, key, AES), then HTTP inside it
+```
+
+TLS's rules always include the Diffie–Hellman exchange and AES. A TLS 1.3 handshake without a key exchange does not exist, so "use TLS" means "do the exchange and encrypt". nginx does not need a separate setting for that.
+
+Both sides have to agree. web2's program must be listening with TLS, for example Node's `https` module given a key file and a certificate file. If nginx sends a TLS hello to a program that expects plain HTTP, that program reads binary bytes instead of `GET /`, and the connection fails.
+
+### Encryption Without Checking the Certificate
+The server always sends a certificate. What is optional is the client's check of it. Browsers always check. nginx checks web2's certificate only with `proxy_ssl_verify on`. Its default is off.
+
+So a common setup for P to web1–web4:
+
+* Each web server gets a **self-signed certificate**: one the server signs with its own private key instead of a CA's. One `openssl` command makes it.
+* nginx connects with `proxy_pass https://...` and does not check it.
+* The exchange still runs, so all bytes between P and web2 are encrypted with AES.
+
+**What is lost**: the certificate check is what stops M from section 107, a machine that sits between P and web2 and does a separate exchange with each. Without the check, P cannot tell web2 from M. So this protects against machines that only read the shop's network, not against one that pretends to be web2. The question is not whether the shop trusts web1–web4. It is whether anything between P and them could pretend to be them.
+
+**Other options**:
+
+* **The shop's own CA**: the shop makes one CA key pair itself, signs web1–web4's certificates with it, and gives P the CA's public key (`proxy_ssl_trusted_certificate` with `proxy_ssl_verify on`). Now P really checks, without Let's Encrypt.
+* **No certificate at all**: TLS 1.3 also allows a pre-shared key, where both sides are given the same secret in advance and use it instead of a certificate. It is uncommon for this. Whether nginx supports it on the `proxy_pass` side is not checked.
+
+### The Next Problem
+So far the shop owns P, the switch and web1–web4 in its own room. Suppose it rents computers from a company like AWS instead. There is no room, cable or switch it can touch. How does it get a local network like `10.0.0.x`, a public address for P, and NAT?
+
+---
+
+## 115. What "Renting a Computer" Actually Is
+
+### The Physical Part
+AWS owns large buildings full of physical computers. Say each one has 96 processor cores and 384 GB of memory. AWS's own cables, switches and routers join them. Only AWS staff touch them.
+
+### The Shop's Part of One Computer
+The shop asks AWS for "a computer with 2 cores and 4 GB of memory". AWS does not hand over a whole physical computer. A program run by AWS on the physical computer splits it, and gives 2 cores and 4 GB to a pretend computer. That pretend computer runs its own Linux kernel. Its kernel sees a processor, memory and a network card, the same as on a real computer.
+
+* **Virtual machine (VM)**: a pretend computer made from part of a physical one.
+* **EC2 instance**: AWS's name for a rented VM. EC2 = Elastic Compute Cloud.
+
+### The Network Card Is Not a Card
+The network card inside the VM is not a physical card. When web1's kernel puts a frame on its card, a part run by AWS on the physical computer receives those bytes. The frame does not go straight onto a cable. These notes call this **AWS's part** on the physical computer.
+
+### Other Customers on the Same Computer
+The same physical computer also runs VMs for other customers, such as greencafe. Each customer picks its own private addresses (section 58), so both can use `10.0.0.x`:
+
+```text
+physical computer H1               physical computer H2
+  bluepizza web1   10.0.0.11         bluepizza web2   10.0.0.12
+  greencafe app1   10.0.0.11         greencafe app2   10.0.0.12
+```
+
+### The Next Problem
+web1's kernel sends a frame to `10.0.0.12`. Two VMs have that address, bluepizza's web2 and greencafe's app2, and they are on another physical computer. How does AWS deliver the frame only to bluepizza's web2, and make sure greencafe's VMs never see it?
+
+---
+
+## 116. VPC
+
+### One Table per Customer
+AWS keeps a separate table for each customer's network. Each row says which physical computer a VM's address lives on. Every frame a VM sends is looked up only in its own customer's table.
+
+```text
+table for bluepizza (id vpc-111)      table for greencafe (id vpc-222)
+  10.0.0.11 -> physical computer H1     10.0.0.11 -> physical computer H1
+  10.0.0.12 -> physical computer H2     10.0.0.12 -> physical computer H2
+```
+
+Real IDs are longer: `vpc-` followed by 17 hex characters. `vpc-111` is a placeholder.
+
+### web1 Sends a Frame to 10.0.0.12
+1. web1's kernel needs web2's MAC address, so it sends an ARP broadcast (section 15): "who has `10.0.0.12`?" AWS's part on H1 receives it. It does not send the broadcast anywhere. It reads the bluepizza table and answers web1 with a MAC address itself.
+2. web1's kernel sends the frame: MAC group, IP group (from `10.0.0.11`, to `10.0.0.12`), TCP group, data.
+3. AWS's part on H1 knows the frame came from a bluepizza VM. It reads the bluepizza table: `10.0.0.12 -> H2`.
+4. AWS's part on H1 puts the whole frame, unchanged, inside a new packet with its own outer header: from H1's address, to H2's address, network ID `vpc-111`. The outer addresses belong to AWS's own building network, not to `10.0.0.x`. This is encapsulation (section 19) once more: one group inside another.
+
+   ```text
+   [outer header: from H1, to H2, vpc-111][web1's frame: MAC group][IP group][TCP group][data]
+   ```
+
+5. AWS's switches and routers carry it from H1 to H2, reading only the outer header.
+6. AWS's part on H2 removes the outer header, reads `vpc-111`, and gives the inner frame to bluepizza's web2. web2's kernel sees a normal frame from `10.0.0.11`.
+
+greencafe's app2 on H2 never gets the frame, because the network ID was `vpc-111`, not `vpc-222`.
+
+AWS's exact outer header format is not public, so the details of step 4 are not checked.
+
+### Name
+One customer's separate network, with its own address range and its own table, is a **VPC** (Virtual Private Cloud). The shop picks the address range when it creates the VPC, for example `10.0.0.0` to `10.0.255.255`, written `10.0.0.0/16` (section 27).
+
+### The Next Problem
+The VPC is fully private right now. Nothing on the internet can reach `10.0.0.x`, and nothing in the VPC can reach the internet. P needs a public address that browsers can reach, and web1–web4 should stay unreachable from the internet. The shop has no router box of its own here. How does AWS split the VPC into a part that can talk to the internet and a part that cannot?
+
+---
+
+## 117. Subnets and Route Tables
+
+### Splitting the Range
+The shop splits the VPC's range into smaller ranges. Each one is a **subnet**:
+
+```text
+VPC        10.0.0.0/16    10.0.0.0 to 10.0.255.255
+subnet A   10.0.1.0/24    10.0.1.0 to 10.0.1.255
+subnet B   10.0.2.0/24    10.0.2.0 to 10.0.2.255
+```
+
+The addresses change from the room version in section 94:
+
+```text
+P            10.0.1.10                 (subnet A)
+web1-web4    10.0.2.11 to 10.0.2.14    (subnet B)
+```
+
+### Five Addresses AWS Keeps
+In every subnet, AWS keeps `.0`, `.1`, `.2`, `.3` and `.255` for itself. `.1` is the default gateway (section 26): where the VM's kernel sends frames for addresses outside its subnet. In the room, the home box's router part held that address. Here AWS's part on the physical computer answers for `.1`. So P cannot be `10.0.1.1`.
+
+### A Route Table per Subnet
+Each subnet is linked to a **route table**. AWS's part on the physical computer reads it for every packet a VM sends. As in section 27, when two rows match, the one with the larger number after the slash wins.
+
+```text
+route table for subnet A
+  10.0.0.0/16  -> local               (inside the VPC: use the table from section 116)
+  0.0.0.0/0    -> internet gateway    (every other address)
+
+route table for subnet B
+  10.0.0.0/16  -> local
+```
+
+The **internet gateway** is AWS's exit from the VPC to the internet. The shop adds one to the VPC. How it works is in section 118.
+
+### Three Packets
+```text
+from    to            row that matches                  result
+web2    10.0.2.11     10.0.0.0/16 -> local              delivered inside the VPC
+web2    8.8.8.8       none (subnet B's table)           dropped; web2's kernel gets no reply
+P       8.8.8.8       0.0.0.0/0 -> internet gateway     sent to the internet gateway
+```
+
+### Name
+AWS calls a subnet whose route table has a row to the internet gateway a **public subnet**, and one without that row a **private subnet**. Nothing else makes a subnet public or private.
+
+### The Next Problem
+P's kernel only knows its address `10.0.1.10`. As in section 58, routers on the internet have no rows for `10.x.x.x`. How does a browser reach P at a public address like `198.51.100.7`, and what does the internet gateway do to P's packets on the way out and on the way in?
+
+---
+
+## 118. Internet Gateway
+
+### One Public Address for One Private Address
+The shop asks AWS for a public address and attaches it to P. The internet gateway then keeps this row:
+
+```text
+internet gateway table (bluepizza VPC)
+  198.51.100.7  <->  10.0.1.10   (P)
+```
+
+There are two kinds of public address:
+
+* **The automatic one**: changes when the VM is stopped and started again.
+* **Elastic IP**: stays the same until the shop gives it back to AWS.
+
+### A Browser Connects to P (Incoming)
+1. The browser's packet goes from `203.0.113.50 : 51000` to `198.51.100.7 : 443`. Internet routers carry it to AWS, because AWS's range includes that address (section 58).
+2. The internet gateway finds `198.51.100.7` in its table, rewrites the to-IP to `10.0.1.10`, and recomputes the checksums. Ports are not changed.
+3. The VPC table (section 116) gives `10.0.1.10 -> physical computer H3`. The packet is encapsulated, carried to H3, and unwrapped.
+4. P's kernel sees a packet from `203.0.113.50 : 51000` to `10.0.1.10 : 443`.
+
+### P Replies (Outgoing)
+1. P's kernel sends from `10.0.1.10 : 443` to `203.0.113.50 : 51000`.
+2. Subnet A's route table matches `0.0.0.0/0 -> internet gateway`.
+3. The internet gateway rewrites the from-IP to `198.51.100.7` and recomputes the checksums.
+4. Internet routers carry it to the browser.
+
+P's kernel never sees `198.51.100.7`. `ip addr` on P shows only `10.0.1.10`.
+
+### Difference From the Home Box NAT
+```text
+                               home box (section 59)              internet gateway
+devices per public address     many                               exactly one
+ports                          changed                            unchanged
+new connection from outside    dropped, no row (section 60)       allowed, the row is fixed
+```
+
+Because the row is fixed, a browser can start a new connection to P.
+
+### What a VM Needs to Talk to the Internet
+Both of these:
+
+* a route table row `0.0.0.0/0 -> internet gateway`
+* a public address in the internet gateway table
+
+web1–web4 have neither. If web1 were in subnet A without a public address, the internet gateway would have no row for `10.0.2.11` and would drop its packets.
+
+### The Next Problem
+web1–web4 still need to make outgoing connections, for example to download updates with `apt` or to call a payment company's server. Nobody on the internet should be able to start a connection to them. How do they get out without a public address of their own?
+
+---
+
+## 119. NAT Gateway
+
+### What It Is
+A **NAT gateway** is a NAT, like the home box's in section 59, that AWS runs inside the shop's VPC. The shop puts it in subnet A and gives it two addresses:
+
+```text
+NAT gateway   private 10.0.1.50 (subnet A)   Elastic IP 198.51.100.20
+
+internet gateway table now:
+  198.51.100.7   <->  10.0.1.10   (P)
+  198.51.100.20  <->  10.0.1.50   (NAT gateway)
+```
+
+The shop adds one row to subnet B's route table:
+
+```text
+route table for subnet B
+  10.0.0.0/16  -> local
+  0.0.0.0/0    -> NAT gateway
+```
+
+### web1 Downloads an Update From 192.0.2.80 : 80 (Outgoing)
+1. web1's kernel sends from `10.0.2.11 : 40000` to `192.0.2.80 : 80`.
+2. Subnet B's route table matches `0.0.0.0/0 -> NAT gateway`. The packet goes to the NAT gateway.
+3. The NAT gateway rewrites the from part to `10.0.1.50 : 61000`, recomputes the checksums, and stores a row:
+
+   ```text
+   inside IP : port      outside port    other end
+   10.0.2.11 : 40000     61000           192.0.2.80 : 80
+   ```
+
+4. The NAT gateway sends the packet. It is in subnet A, so subnet A's route table matches `0.0.0.0/0 -> internet gateway`.
+5. The internet gateway rewrites the from-IP `10.0.1.50` to `198.51.100.20` (section 118). The update server sees a connection from `198.51.100.20 : 61000`.
+
+### The Reply (Incoming)
+1. The reply goes to `198.51.100.20 : 61000`. The internet gateway rewrites the to-IP to `10.0.1.50`.
+2. The NAT gateway finds port 61000 in its table and rewrites the to part to `10.0.2.11 : 40000`.
+3. The packet reaches web1's kernel.
+
+### Nobody Outside Can Start a Connection
+This works like the home box: many private addresses share one public address, and ports are changed. Someone on the internet sends a new packet to `198.51.100.20 : 62000`. The NAT gateway has no row for port 62000, so it drops it, exactly as in section 60.
+
+### Why It Sits in Subnet A
+Its own packets need the row `0.0.0.0/0 -> internet gateway`. Only subnet A's route table has it. In subnet B, the NAT gateway's packets would have no way out.
+
+### The Next Problem
+Nothing limits ports yet. Any program listening on P, on any port, can be reached from the internet at `198.51.100.7`. Inside the VPC, any VM can connect to any other VM on any port. How does the shop say "P accepts only ports 80 and 443 from the internet, and web1–web4 accept connections only from P"?
+
+---
+
+## 120. Security Groups
+
+### What It Is
+A **security group** is a list of allow rules attached to a VM's network card. AWS's part on the physical computer checks it before a packet reaches the VM, and after a packet leaves the VM. The VM's kernel does not do this check, and never sees the packets that are blocked.
+
+* **Inbound rules**: for packets coming to the VM.
+* **Outbound rules**: for packets leaving the VM.
+* Only allow rules exist. Anything no rule allows is dropped.
+* A new security group has no inbound rules, and one outbound rule that allows everything.
+
+### The Shop's Two Security Groups
+```text
+sg-p   (attached to P)
+  inbound:  TCP port 80   from 0.0.0.0/0
+            TCP port 443  from 0.0.0.0/0
+  outbound: everything    to 0.0.0.0/0
+
+sg-web (attached to web1-web4)
+  inbound:  TCP port 80   from sg-p
+  outbound: everything    to 0.0.0.0/0
+```
+
+* `from sg-p` means "from any VM that has sg-p attached". Right now that is P, `10.0.1.10`.
+* Port 80 on web1–web4 is the port the web program listens on, as in section 94.
+
+### The Connection Table
+AWS's part also keeps a table of the connections it has allowed. A packet that belongs to a stored connection is allowed in both directions, even if no rule matches it. Because it keeps this table, a security group is **stateful**.
+
+### Four Cases
+1. **A browser connects to P on port 443.** The inbound rule for 443 matches, so the packet is delivered and the connection is stored. P's replies pass because of the stored row.
+2. **Someone connects to P on port 22.** No rule matches, and AWS's part drops the packet. It sends nothing back, so this is not the RST "connection refused" from section 94. The connecting side's kernel resends its SYN a few times and then gives up. On Linux with default settings, that takes about 2 minutes.
+3. **web3 connects to web1 on port 80.** web3 does not have sg-p, so the packet is dropped.
+4. **web1 downloads an update (section 119).** The outbound rule allows it, and the connection is stored. The reply comes in from `192.0.2.80 : 80`. No inbound rule in sg-web allows that address, but the stored row lets it in.
+
+### The Next Problem
+Security groups can only allow. P allows port 443 from `0.0.0.0/0`. Suppose the range `203.0.113.0/24` keeps sending bad requests to P. The shop wants to block that one range for the whole of subnet A, without editing every VM's security group. How?
+
+---
+
+## 121. Network ACLs
+
+### What It Is
+A **network ACL** is a numbered list of rules attached to a subnet. ACL = access control list. AWS checks it when a packet enters or leaves the subnet. Packets between two VMs in the same subnet are not checked by it.
+
+### Three Differences From a Security Group
+* It has **deny** rules as well as allow rules.
+* Rules are read from the lowest number up. The first rule that matches decides, and later rules are not read.
+* It keeps no connection table, so it is **stateless**. A reply is checked against the rules like any new packet.
+
+### The Shop's Network ACL for Subnet A
+Only the browser-to-P part is shown. A full list also needs rows for the NAT gateway and for P's connections to web1–web4.
+
+```text
+inbound
+  100  all traffic     from 203.0.113.0/24   DENY
+  200  TCP 443         from 0.0.0.0/0        ALLOW
+  210  TCP 80          from 0.0.0.0/0        ALLOW
+  *    all traffic     from 0.0.0.0/0        DENY
+
+outbound
+  100  TCP 1024-65535  to 0.0.0.0/0          ALLOW
+  *    all traffic     to 0.0.0.0/0          DENY
+```
+
+`*` is the last rule. It is always there and cannot be removed.
+
+The browser in section 118 was at `203.0.113.50`, which is inside the blocked range. So the normal customer here is meera, at the example address `198.18.0.25`.
+
+### Three Cases
+1. **The bad range connects** (`203.0.113.9 : 50000` to P:443). Rule 100 matches first, so the packet is dropped. Rule 200 is never read.
+2. **meera connects** (`198.18.0.25 : 51000` to P:443). Rule 100 does not match, rule 200 does: allowed. Then P's security group sg-p checks it, and allows it too. Both checks must allow a packet.
+3. **P replies** (`10.0.1.10 : 443` to `198.18.0.25 : 51000`). The network ACL has no stored connection, so it checks the outbound rules. Port 51000 is the from-port meera's laptop kernel picked when it opened the connection (section 7). Linux picks from 32768-60999 by default, Windows from 49152-65535. That is why outbound rule 100 allows 1024-65535. Without it the reply is dropped, even though sg-p would allow it.
+
+### Order of Checks
+For a packet from the internet to P:
+
+```text
+internet gateway -> network ACL of subnet A -> security group sg-p -> P's kernel
+```
+
+A reply goes through the same checks in reverse order.
+
+### Side by Side
+```text
+                     security group                    network ACL
+attached to          a VM's network card               a subnet
+rules                allow only                        allow and deny, numbered, first match decides
+connection table     yes (stateful)                    no (stateless), replies need their own rules
+default              inbound: nothing allowed          the VPC's default one allows everything
+                     outbound: everything allowed      both ways
+```
+
+### Why Network ACLs Are Rarely Seen
+They are not deprecated. Every VPC has one, and every subnet is linked to one (true as of mid-2026; AWS's current documentation is not checked). What AWS retired in August 2023 was **EC2-Classic**: the older network from before VPCs, where all customers' VMs sat in one shared network and only security groups separated them.
+
+People rarely touch network ACLs because the default one allows all traffic both ways, so a VPC works without anyone opening it. Most shops write all their rules in security groups, and add network ACL rules only for what a security group cannot do, mainly a deny like rule 100 above. Since a network ACL keeps no connection table, every rule also needs a matching reply rule, such as the 1024-65535 range. A wrong reply rule drops traffic with no error message, so people avoid editing them unless they need to.
